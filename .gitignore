@@ -1,0 +1,6 @@
+sourcesbusinesscase/
+*.pyc
+__pycache__/
+.venv/
+venv/
+.env
