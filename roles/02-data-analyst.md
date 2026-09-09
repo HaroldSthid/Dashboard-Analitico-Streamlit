@@ -44,11 +44,14 @@ quien construya el dashboard):
   final lo fija el analista al construir el dashboard con el dataset real) se clasifican como
   Alto. El resto se distribuye entre Medio y Bajo según la misma probabilidad, sin importar el
   cluster.
-- **Criterio de desempate**: dentro del mismo tier, el orden de contacto lo define
-  `Probabilidad_Compra` descendente; si dos leads empatan en probabilidad (con una tolerancia de
-  negocio, ej. diferencia < 0.01), el segmento de `hobby_estandar` (vía `dim_hobby`) se usa como
-  criterio secundario de agrupación visual (no de ranking numérico) para que el comercial pueda
-  ofrecer un discurso comercial más afín al interés del lead.
+- **Criterio de desempate**: dentro del mismo tier, el orden de contacto (`orden_contacto`, un
+  entero de ranking donde 1 = primer contacto) lo define exclusivamente `Probabilidad_Compra`
+  descendente; si dos leads empatan en probabilidad (con una tolerancia de negocio, ej.
+  diferencia < 0.01), el desempate final para que el orden sea determinista es por `IDPROSPECTO`
+  ascendente — un criterio técnico, no de negocio. **`hobby_estandar` NUNCA participa del cálculo
+  numérico de `orden_contacto`**: se expone como un campo separado (ej. un agrupador visual o
+  filtro en el dashboard) para que el comercial pueda ofrecer un discurso más afín al interés del
+  lead, pero no reordena el ranking.
 - **Segmentación por interés**: `dim_hobby` alimenta un filtro/segmento visual del dashboard
   (ej. "leads interesados en X" ordenados por su tier de prioridad). `dim_comentario`, al no
   tener join, se ofrece como catálogo de referencia para que el analista (o quien construya el

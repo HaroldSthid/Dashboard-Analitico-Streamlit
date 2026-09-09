@@ -68,6 +68,20 @@ sección "Owned Inputs/Outputs" del spec. Los umbrales de ejemplo del spec (0.70
 ilustrativos — ajustalos si hace falta para que tengan sentido contra los datos reales de
 tbl_leads, pero documentá qué umbral final usaste y por qué.
 
+Dos cosas que el spec deja abiertas a propósito, y que tenés que resolver vos con evidencia,
+no adivinando:
+- "El cluster de mayor conversión histórica" no viene con un número — calculalo vos:
+  agrupá `tbl_leads` por `Cluster` y sacá el promedio de `Probabilidad_Compra` por grupo.
+  El que tenga el promedio más alto es ese cluster. Mostrame la tabla de promedios antes de
+  fijar la constante.
+- El spec no da ningún corte para separar Medio de Bajo (solo define Alto). Proponé un
+  umbral con evidencia (ej. un histograma o percentiles de `Probabilidad_Compra` dentro del
+  grupo que no calificó como Alto) y documentalo explícitamente como una decisión tuya, no
+  del spec — un analista real tendría que poder cuestionarla.
+- Ojo con la columna `Compra`: no es un flag de "compró sí/no", son etiquetas de segmento de
+  valor (texto). No la uses como proxy de conversión — la señal de negocio validada es
+  `Probabilidad_Compra`.
+
 Corré esa función contra 3 filas reales de tbl_leads (elegí una con Cluster alto y probabilidad
 alta, una media, una baja) y mostrame el resultado.
 
@@ -80,6 +94,15 @@ confianza), consistentes con los umbrales que ya usaste en el paso 2 — no inve
 criterio que contradiga al del Rol 2 sin decirlo explícitamente. Anotá también la resolución
 del desacuerdo (dim_comentario es catálogo, no feature) para que quede claro en el código o en
 un comentario por qué esa tabla no se usa como columna unida.
+
+El spec dice que la etiqueta de cada Cluster "depende del análisis de perfil ya hecho en
+Módulo 4" — ese análisis vive en otro repo (`DataScienceAplicado-Fundamentals`) que este
+protocolo NO te pide leer. No hace falta que lo abras: perfilá cada Cluster vos mismo,
+directo desde `tbl_leads` (promedios de columnas como `Edad`, `Salario_MarcaClase`,
+`InteresMetraje_MarcaClase` por Cluster) y usá eso como evidencia para la etiqueta. Dejá
+explícito en el código que es tu interpretación basada en un perfilado propio, no una
+etiqueta validada por Módulo 4 — eso es información real que alguien va a tener que revisar
+después.
 
 CHECKPOINT 3: mostrame las etiquetas que le pusiste a cada Cluster (0, 1, 2) antes de seguir.
 

@@ -57,8 +57,11 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
-DB_PATH = "data/db_dashboard_course.db"
+# Resuelto relativo a este archivo, no al cwd desde donde se corra streamlit/python
+# (esta solución de referencia vive en reference-solution/, un nivel debajo de data/).
+DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "db_dashboard_course.db")
 
 # --- Umbrales de negocio (documentados arriba) ---
 CLUSTER_ALTA_CONVERSION = 2
