@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Analítico — Simulación de Equipo de Datos</title>
+<meta name="description" content="Capítulo extra del Laboratorio BI: un equipo de datos simulado (engineer, analyst, scientist) construido con SDD — la IA no reemplaza al Data Scientist, lo potencia.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="topbar">
+    <a class="brand" href="#inicio">Dashboard Analítico</a>
+    <nav class="nav">
+      <a href="#caso">El caso</a>
+      <a href="#roles">Los 3 roles</a>
+      <a href="#proceso">Cómo se construyó</a>
+      <a href="#potencia">IA: potencia, no reemplaza</a>
+      <a href="#repo">Repo &amp; datos</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <section id="inicio" class="hero">
+      <p class="eyebrow">Capítulo extra · Simulación de equipo de datos</p>
+      <h1>Un equipo de datos, simulado y verificado</h1>
+      <p class="lead">
+        Continuación de <a href="https://haroldsthid.github.io/DataScienceAplicado-Fundamentals/" target="_blank" rel="noopener">Módulo 4</a>:
+        acá el pipeline de K-Means y Random Forest ya construido se reparte entre tres roles — data
+        engineer, data analyst, data scientist — con specs propios, un handoff explícito entre ellos,
+        y un desacuerdo real que queda documentado en vez de resuelto en silencio. Lo construimos con
+        Spec-Driven Development, de punta a punta, y la verificación encontró un error real antes de
+        publicarlo.
+      </p>
+      <div class="actions">
+        <a class="button primary" href="#potencia">Ver qué encontró la verificación</a>
+        <a class="button secondary" href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit" target="_blank" rel="noopener">Repo en GitHub ↗</a>
+      </div>
+      <p class="meta" style="margin-top: 14px;">
+        Este repo no ship-ea un dashboard funcionando — ship-ea los specs y el dataset para que
+        vos (o un code agent en VS Code) construyas uno. Ver <a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/blob/main/EXERCISE.md" target="_blank" rel="noopener"><code>EXERCISE.md</code></a>.
+      </p>
+    </section>
+
+    <section id="caso" class="section">
+      <h2 class="section-title">El caso</h2>
+      <p class="meta">
+        El pipeline de Módulo 4 ya sabe segmentar prospectos y predecir probabilidad de compra —
+        pero un modelo entrenado no es lo mismo que una decisión comercial tomada. Este capítulo
+        simula cómo un equipo real reparte ese trabajo: alguien prepara los datos, alguien define
+        las reglas de negocio, alguien interpreta el modelo para el usuario final — un líder
+        comercial priorizando a quién llamar primero.
+      </p>
+
+      <div class="grid cards">
+        <div class="card">
+          <span class="eyebrow">Audiencia</span>
+          <h3 style="margin-top: 12px;">Líder comercial</h3>
+          <p class="meta">Decide a quién contactar primero, según cluster + probabilidad de compra — la misma señal que ya calcula Módulo 4.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">Estructura</span>
+          <h3 style="margin-top: 12px;">Handoff lineal</h3>
+          <p class="meta">Engineer → Analyst → Scientist. Cada uno entrega al siguiente por contrato explícito, no por convención tácita.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">Honestidad</span>
+          <h3 style="margin-top: 12px;">Un desacuerdo real</h3>
+          <p class="meta">No todo cierra prolijo: un dataset no tiene clave de unión, y eso queda documentado como decisión, no escondido.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="roles" class="section">
+      <h2 class="section-title">Los 3 roles</h2>
+      <p class="meta">
+        Cada uno es un archivo markdown con seis secciones fijas (problema de negocio, inputs/outputs
+        que posee, reglas de negocio, contrato de entrega al siguiente rol, límites de alcance,
+        evidencia de aceptación) — pensados para que un code agent los ejecute de punta a punta.
+      </p>
+
+      <div class="timeline">
+        <div class="step">
+          <span class="step-number">1</span>
+          <div>
+            <h3>Data Engineer</h3>
+            <p>Anonimiza y proyecta dos diccionarios de negocio (hobbies, categorías de comentarios) en tablas públicas, reutilizando la data ya publicada de Módulo 4. Entrega <code>tbl_leads</code>, <code>dim_hobby</code>, <code>dim_comentario</code> — y deja abierta la pregunta: ¿está bien que una de esas tablas no tenga clave de unión?</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-number">2</span>
+          <div>
+            <h3>Data Analyst</h3>
+            <p>Define la lógica de priorización comercial (<code>tier_prioridad</code>, orden de contacto) sobre esos datos. Es testigo del desacuerdo del ingeniero — su caso de uso funciona igual sin la clave faltante — pero no lo resuelve por su cuenta.</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-number">3</span>
+          <div>
+            <h3>Data Scientist</h3>
+            <p>Interpreta <code>Cluster</code> y <code>Probabilidad_Compra</code> para la superficie de decisión final, y cierra el desacuerdo: exige clave de unión estable para cualquier feature de modelo — la tabla que no la tiene queda como vocabulario, no como feature.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="proceso" class="section">
+      <h2 class="section-title">Cómo se construyó</h2>
+      <p class="meta">
+        Todo el capítulo se armó con <strong>Spec-Driven Development</strong>: exploración → propuesta →
+        spec → diseño → tareas → aplicar → verificar → archivar. Cada fase quedó documentada en
+        <a href="https://github.com/HaroldSthid/DataScienceAplicado-Fundamentals/tree/main/openspec/changes/archive/2026-09-09-ml-dashboard-chapter" target="_blank" rel="noopener"><code>openspec/changes/archive/</code></a>.
+      </p>
+
+      <div class="grid cards">
+        <div class="card">
+          <span class="eyebrow">Decisiones humanas</span>
+          <h3 style="margin-top: 12px;">No ocupó el slot reservado</h3>
+          <p class="meta">La propuesta sugirió que esto fuera "Módulo 6" (ya reservado en el roadmap). Se decidió lo contrario: capítulo extra, sin numerar — el roadmap publicado no se toca.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">Decisiones humanas</span>
+          <h3 style="margin-top: 12px;">Nombre del cliente, genérico</h3>
+          <p class="meta">Un valor del diccionario mencionaba a la constructora real por su nombre. No era PII personal, pero se decidió genericarlo antes de publicar.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">24 tareas, 4 checkpoints</span>
+          <h3 style="margin-top: 12px;">Confirmado paso a paso</h3>
+          <p class="meta">Cada checkpoint (inspección+dataset, contratos, specs de rol, publicación) se confirmó antes de avanzar — nada se pusheó sin revisión.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="potencia" class="section">
+      <h2 class="section-title">La IA no te reemplaza, te potencia</h2>
+      <p class="meta">
+        Esta sección no es una consigna — es lo que realmente pasó al construir este capítulo.
+      </p>
+
+      <div class="grid cards">
+        <div class="card full soft warn">
+          <h3>Lo que la verificación encontró</h3>
+          <p class="meta">
+            El spec inicial daba por hecho que <code>Cluster</code> y <code>Probabilidad_Compra</code>
+            ya existían en la tabla pública de Módulo 4. <strong>No existían</strong> — en Módulo 4 son
+            salidas en memoria de <code>src/models.py</code>, nunca persistidas a ninguna base de datos.
+            El error se propagó sin que nadie lo notara hasta la fase de verificación, que corrió el
+            chequeo de forma independiente en vez de confiar en lo que las fases anteriores reportaron
+            — y lo encontró. Sin ese paso, el capítulo se hubiera publicado con reglas de negocio
+            (<code>Probabilidad_Compra &gt;= 0.70</code>) apuntando a columnas que no existen.
+          </p>
+        </div>
+        <div class="card full">
+          <h3>Lo que arreglarlo requirió</h3>
+          <p class="meta">
+            La corrección no fue inventar valores ni bajar el estándar del spec: fue reutilizar el
+            pipeline real de Módulo 4 (K-Means + Random Forest, mismo <code>random_state=42</code>)
+            para calcular esas columnas de verdad y persistirlas. Se re-verificó de forma independiente
+            dos veces — una corrida distinta a la que hizo el fix, re-derivando los mismos resultados
+            desde cero antes de confiar en ellos.
+          </p>
+        </div>
+        <div class="card full soft">
+          <h3>El punto</h3>
+          <p class="meta">
+            La IA generó specs completos, un dataset anonimizado, y un pipeline reproducible en horas,
+            no semanas. Pero cada decisión de producto real — el nombre del repo, si ocupaba el slot
+            reservado, si genericar un nombre de cliente, cómo resolver el desacuerdo entre roles — la
+            tomó una persona. Y el error más serio del proceso lo encontró un chequeo automatizado
+            <em>corriendo en serio</em>, no confiando ciegamente en el paso anterior. Eso es lo que
+            significa que la IA potencia: hace el trabajo pesado más rápido, pero el criterio — y la
+            costumbre de verificar en vez de asumir — sigue siendo tuyo.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="repo" class="section">
+      <h2 class="section-title">Repo &amp; datos</h2>
+
+      <div class="grid cards">
+        <a class="card" href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit" target="_blank" rel="noopener">
+          <span class="eyebrow">Capítulo extra · Activo</span>
+          <h3 style="margin-top: 12px;">Dashboard-Analitico-Streamlit</h3>
+          <p class="meta">3 specs de rol, dataset anonimizado, contratos de datos, historial SDD completo.</p>
+          <p><strong>Ver repo ↗</strong></p>
+        </a>
+        <div class="card wide">
+          <h3>Sobre los datos publicados</h3>
+          <p class="meta">
+            <code>tbl_leads</code> reutiliza (sin modificar) la data ya pública de Módulo 4, ahora con
+            <code>Cluster</code> y <code>Probabilidad_Compra</code> genuinamente calculados y persistidos.
+            <code>dim_hobby</code> y <code>dim_comentario</code> son proyecciones anonimizadas de dos
+            diccionarios internos — sin nombres, comentarios reales, ni identificadores de fila de origen.
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <p>Dashboard Analítico · Capítulo extra del Laboratorio BI · Data Science Módulo Aplicado</p>
+    <p><a href="https://haroldsthid.github.io/DataFoundations-Roadmap/" target="_blank" rel="noopener">← volver al roadmap</a></p>
+  </footer>
+
+</div>
+
+</body>
+</html>
