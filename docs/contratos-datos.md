@@ -11,9 +11,13 @@ para que la validación sea re-ejecutable por un auditor externo.
 - **Contratos sobre Esquema:** el código del dashboard (Streamlit) depende de nombres de tabla y
   columna, tipos, y garantías de integridad referencial documentados aquí — no de la forma
   interna de `scripts/build_public_dataset.py`.
-- **Reutilización, no recomputación:** `tbl_leads` es una copia de solo lectura de la tabla
-  pública ya validada de Módulo 4 (`tbl_Kmean_Iteracion_3vmi`); este repo no reentrena K-Means ni
-  Random Forest.
+- **Reutilización, no reimplementación:** `tbl_leads` copia sin transformación las 22 columnas
+  originales de la tabla pública ya validada de Módulo 4 (`tbl_Kmean_Iteracion_3vmi`), y agrega
+  `Cluster`/`Probabilidad_Compra` ejecutando de nuevo el pipeline **real** de Módulo 4
+  (`segmentar_clientes_kmeans` + `entrenar_evaluar_probabilidad`, importados desde
+  `DataScienceAplicado-Fundamentals/src/models.py`, no reescritos aquí). Este repo no reentrena
+  con otra lógica ni otros datos — corre el mismo K-Means y el mismo Random Forest ya
+  contractados por pytest en Módulo 4, sobre la misma base pública fuente.
 - **Anonimización verificable, no declarada:** cada tabla derivada de un diccionario privado pasa
   por un filtro de patrones PII antes de escribirse, y el resultado (0 rechazos) queda impreso en
   el log del script generador.
@@ -22,7 +26,7 @@ para que la validación sea re-ejecutable por un auditor externo.
 
 | Objetivo de Negocio | Fuente | Tabla Pública | Contrato de Salida | Validación |
 |---|---|---|---|---|
-| Priorización de leads (fact table, reutilizada) | `tbl_Kmean_Iteracion_3vmi` (público, `db_casoInmobiliaria_DS_course.db`, Módulo 4) | `tbl_leads` | Copia 1:1, sin transformación: 622 filas × 22 columnas, mismos nombres/tipos/contrato que `DataScienceAplicado-Fundamentals/docs/contratos-datos.md` (incluye `Cluster:int`, `Probabilidad_Compra:float [0,1]`). Solo lectura — este repo nunca escribe en esta tabla. | Conteo de filas/columnas igual al origen; `Cluster`/`Probabilidad_Compra` sin recomputar (ver script, función `copy_tbl_leads`). |
+| Priorización de leads (fact table, reutilizada + 2 columnas computadas) | `tbl_Kmean_Iteracion_3vmi` (público, `db_casoInmobiliaria_DS_course.db`, Módulo 4) | `tbl_leads` | 622 filas × 24 columnas: las 22 originales copiadas 1:1 sin transformación, más `Cluster:int` y `Probabilidad_Compra:float [0,1]`, calculadas en tiempo de construcción del dataset re-ejecutando el pipeline real de Módulo 4 (no recomputadas con otra lógica, no reentrenadas con otros datos). Solo lectura — este repo nunca escribe en la tabla fuente. | Conteo de filas/columnas contra el origen para las 22 columnas originales; `Cluster`/`Probabilidad_Compra` generadas por `scripts/build_public_dataset.py::compute_ml_outputs()`, que importa y llama a `cargar_datos`, `ejecutar_limpieza_pipeline`, `imputar_estado_civil` (de `DataScienceAplicado-Fundamentals/src/data_processing.py`) y `segmentar_clientes_kmeans`, `entrenar_evaluar_probabilidad` (de `src/models.py`), en la misma secuencia que `main.py` de ese repo, y las mergea a `tbl_leads` por `IDPROSPECTO` en `copy_tbl_leads()`. Determinista: `random_state=42` fijo en cada paso. Verificado por re-corrida bit-a-bit idéntica (`git status --porcelain` vacío). |
 | Catálogo de hobbies/intereses | `Diccionarios_Hobbies.xlsx` (privado, `sourcesbusinesscase/`, columna `ESTANDAR`) | `dim_hobby` | `hobby_id:int` (PK, surrogate, entero denso desde 1 sobre el conjunto ordenado de labels distintos), `hobby_estandar:str` (no nulo, deduplicado). 60 filas. **Universo de labels = unión** del diccionario (58 valores) **y** los valores reales distintos de `tbl_leads.Hobbies_Estandar` (2 valores adicionales: "Areas Sociales", "Otros", no presentes en el diccionario) — ver Decisión de Diseño abajo. | Escaneo de patrones PII sobre `ESTANDAR` (0 rechazos) + query de orfandad de la sección 3 (0 filas huérfanas). |
 | Catálogo de categorías de comentarios | `Diccionario_ComentariosEstandarizado.xlsx` (privado, `sourcesbusinesscase/`, columna `Categoria`) | `dim_comentario` | `comentario_id:int` (PK, surrogate), `categoria_comentario:str` (no nulo, deduplicado). 14 filas. **Tabla de vocabulario independiente: no existe columna de unión hacia `tbl_leads`** (confirmado por inspección de valores contra todas las columnas de texto de la tabla de hechos, no solo por nombre de columna) — ver Decisión de Diseño abajo. | Escaneo de patrones PII sobre `Categoria` (0 rechazos). No aplica query de orfandad (no hay join). |
 

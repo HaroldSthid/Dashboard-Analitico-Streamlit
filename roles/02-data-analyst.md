@@ -21,8 +21,10 @@ deben respetar sin reinterpretar.
 **Owned Inputs** (deben coincidir por nombre exacto con el Handoff Contract de
 `roles/01-data-engineer.md`):
 
-- `tbl_leads` — copia de solo lectura de `tbl_Kmean_Iteracion_3vmi` (622 filas × 22 columnas,
-  incluye `Cluster:int`, `Probabilidad_Compra:float [0,1]`, `Hobbies_Estandar:str`).
+- `tbl_leads` — 622 filas × 24 columnas: 22 copiadas sin transformación de
+  `tbl_Kmean_Iteracion_3vmi`, más `Cluster:int` y `Probabilidad_Compra:float [0,1]` (calculadas
+  en tiempo de construcción del dataset re-ejecutando el pipeline real de Módulo 4, ver
+  `docs/contratos-datos.md`), y `Hobbies_Estandar:str`.
 - `dim_hobby` — `hobby_id:int` PK, `hobby_estandar:str`; join:
   `tbl_leads.Hobbies_Estandar = dim_hobby.hobby_estandar` (0 huérfanos).
 - `dim_comentario` — `comentario_id:int` PK, `categoria_comentario:str`; sin join hacia

@@ -69,8 +69,10 @@ por Módulo 4.
 El ingeniero de datos entrega al siguiente rol (analista de datos) exactamente estas tres
 tablas, ya materializadas en `data/db_dashboard_course.db`:
 
-- `tbl_leads` — copia de solo lectura de `tbl_Kmean_Iteracion_3vmi` (622 filas × 22 columnas,
-  incluye `Cluster:int`, `Probabilidad_Compra:float [0,1]`, `Hobbies_Estandar:str`).
+- `tbl_leads` — 622 filas × 24 columnas: 22 copiadas sin transformación de
+  `tbl_Kmean_Iteracion_3vmi`, más `Cluster:int` y `Probabilidad_Compra:float [0,1]` (calculadas
+  en tiempo de construcción del dataset re-ejecutando el pipeline real de Módulo 4, ver
+  `docs/contratos-datos.md`), y `Hobbies_Estandar:str`.
 - `dim_hobby` — `hobby_id:int` PK, `hobby_estandar:str`; join documentado:
   `tbl_leads.Hobbies_Estandar = dim_hobby.hobby_estandar` (0 huérfanos, query re-ejecutable en
   `docs/contratos-datos.md` sección 3).
