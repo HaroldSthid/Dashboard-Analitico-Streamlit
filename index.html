@@ -218,6 +218,19 @@
             desde cero antes de confiar en ellos.
           </p>
         </div>
+        <div class="card full">
+          <h3>Dos agentes distintos, el mismo resultado</h3>
+          <p class="meta">
+            El <code>RUNBOOK.md</code> no se probó una sola vez. Se corrió con un agente sin contexto
+            previo del proyecto, y después de nuevo con otro agente (Antigravity) en una máquina
+            distinta, sin coordinación entre ambas corridas. Los dos llegaron al mismo cluster de
+            mayor conversión (<code>Cluster 2</code>, promedio de <code>Probabilidad_Compra</code>
+            ≈0.58 vs ≈0.16-0.18 de los otros dos), al mismo umbral Medio/Bajo (0.30) por caminos de
+            análisis distintos, y a etiquetas de cluster prácticamente idénticas — sin que ningún
+            spec les diera esos números. Eso no es casualidad: es evidencia real, y dos criterios
+            independientes leyéndola igual.
+          </p>
+        </div>
         <div class="card full soft">
           <h3>El punto</h3>
           <p class="meta">
