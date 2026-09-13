@@ -367,6 +367,57 @@ def catalogo_hobbies(ctx: SkillContext) -> SkillResult:
     return SkillResult(skill="catalogo_hobbies", rows=result_rows, citation=None)
 
 
+# Cluster business-labels (PR8), re-implemented (never imported) from
+# reference-solution/interpretacion.py::CLUSTER_LABELS / CLUSTER_DESCRIPTIONS
+# -- same values, same out-of-range fallback. Module-level constants so
+# `interpretar_cluster` stays a plain dict lookup, mirroring how
+# `Thresholds`' own default values sit at module level above.
+CLUSTER_LABELS: dict[int, str] = {
+    0: "Salario alto, conversión baja",
+    1: "Maduro, baja urgencia de compra",
+    2: "Alto interés, alta probabilidad de compra",
+}
+
+CLUSTER_DESCRIPTIONS: dict[int, str] = {
+    0: (
+        "Segmento pequeño (29 leads) con el salario declarado más alto del dataset, pero "
+        "probabilidad de compra baja (~18% promedio). No priorizar por volumen."
+    ),
+    1: (
+        "Segmento más grande en número (250 leads) pero con la probabilidad de compra más "
+        "baja de los tres (~16% promedio) y la edad promedio más alta (~63 años)."
+    ),
+    2: (
+        "Segmento mayoritario (343 leads) y el único con probabilidad de compra promedio "
+        "superior a 0.5 (~58%). Corresponde al Cluster de mayor conversión histórica usado "
+        "por el analista para el tier 'Alto'."
+    ),
+}
+
+
+def interpretar_cluster(ctx: SkillContext, cluster: int) -> SkillResult:
+    """Human-readable business label/description for a Cluster (PR8).
+
+    Pure dict lookup -- never touches `ctx.db_path` and never issues a
+    query. `ctx` is still required as the first parameter purely for
+    calling-convention consistency with every other registered skill:
+    `agent_harness.py` invokes every entry in `SKILLS` uniformly as
+    `skill_fn(ctx, **validated_args)`, so a ctx-less signature here would
+    break dispatch from the closed registry even though this particular
+    skill has no use for `ctx.db_path`. Mirrors
+    reference-solution/interpretacion.py::interpretar_cluster (plus its
+    sibling `CLUSTER_DESCRIPTIONS` dict) exactly, including the "sin perfil
+    documentado" fallback for any cluster outside {0, 1, 2}.
+    """
+
+    label = CLUSTER_LABELS.get(cluster, f"Cluster {cluster} (sin perfil documentado)")
+    description = CLUSTER_DESCRIPTIONS.get(
+        cluster, "Sin descripción documentada para este cluster."
+    )
+    row = {"cluster": cluster, "label": label, "description": description}
+    return SkillResult(skill="interpretar_cluster", rows=[row], citation=None)
+
+
 def catalogo_categorias_comentario(ctx: SkillContext) -> SkillResult:
     """List comment category vocabulary (`dim_comentario`).
 
@@ -418,12 +469,17 @@ class CatalogoCategoriasComentarioArgs(BaseModel):
     pass
 
 
+class InterpretarClusterArgs(BaseModel):
+    cluster: int
+
+
 SKILLS: dict[str, Callable[..., SkillResult]] = {
     "listar_leads_priorizados": listar_leads_priorizados,
     "explicar_tier_de_lead": explicar_tier_de_lead,
     "resumen_por_cluster": resumen_por_cluster,
     "catalogo_hobbies": catalogo_hobbies,
     "catalogo_categorias_comentario": catalogo_categorias_comentario,
+    "interpretar_cluster": interpretar_cluster,
 }
 
 _SKILL_DESCRIPTIONS: dict[str, str] = {
@@ -442,6 +498,10 @@ _SKILL_DESCRIPTIONS: dict[str, str] = {
         "List comment category vocabulary (dim_comentario) as a reference "
         "catalog — never joined or linked to individual leads."
     ),
+    "interpretar_cluster": (
+        "Human-readable business label and description for a Cluster id, "
+        "for explaining what a cluster means in business terms."
+    ),
 }
 
 _SKILL_ARGS_MODELS: dict[str, type[BaseModel]] = {
@@ -450,6 +510,7 @@ _SKILL_ARGS_MODELS: dict[str, type[BaseModel]] = {
     "resumen_por_cluster": ResumenPorClusterArgs,
     "catalogo_hobbies": CatalogoHobbiesArgs,
     "catalogo_categorias_comentario": CatalogoCategoriasComentarioArgs,
+    "interpretar_cluster": InterpretarClusterArgs,
 }
 
 # Wrapped as {"type": "function", "function": {...}} per the OpenAI/
