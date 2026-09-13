@@ -317,3 +317,68 @@ def explicar_tier_de_lead(ctx: SkillContext, idprospecto: int) -> SkillResult:
 
     citation = ThresholdCitation.from_thresholds(ctx.thresholds)
     return SkillResult(skill="explicar_tier_de_lead", rows=[lead], citation=citation)
+
+
+def resumen_por_cluster(ctx: SkillContext, hobby_estandar: str | None = None) -> SkillResult:
+    """Aggregate lead counts per `Cluster`, optionally filtered by hobby.
+
+    `Cluster` is read-only and never recomputed. The optional hobby filter
+    uses the same in-memory exact-match mechanism as
+    `listar_leads_priorizados` (never a SQL JOIN). No `tier_prioridad` field
+    is produced here, so no citation is required.
+    """
+
+    if hobby_estandar is not None:
+        _validate_hobby_estandar(ctx.db_path, hobby_estandar)
+
+    leads = _fetch_all_leads(ctx.db_path)
+    if hobby_estandar is not None:
+        leads = [lead for lead in leads if lead["Hobbies_Estandar"] == hobby_estandar]
+
+    conteo: dict[int, int] = {}
+    for lead in leads:
+        conteo[lead["Cluster"]] = conteo.get(lead["Cluster"], 0) + 1
+
+    rows = [
+        {"Cluster": cluster, "cantidad_leads": cantidad}
+        for cluster, cantidad in sorted(conteo.items())
+    ]
+    return SkillResult(skill="resumen_por_cluster", rows=rows, citation=None)
+
+
+def catalogo_hobbies(ctx: SkillContext) -> SkillResult:
+    """List the standardized hobby vocabulary (`dim_hobby`).
+
+    Vocabulary only — no `tier_prioridad` rows, so no citation is required.
+    """
+
+    con = sqlite3.connect(ctx.db_path)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT hobby_id, hobby_estandar FROM dim_hobby;")
+        rows = cur.fetchall()
+    finally:
+        con.close()
+
+    result_rows = [{"hobby_id": row[0], "hobby_estandar": row[1]} for row in rows]
+    return SkillResult(skill="catalogo_hobbies", rows=result_rows, citation=None)
+
+
+def catalogo_categorias_comentario(ctx: SkillContext) -> SkillResult:
+    """List comment category vocabulary (`dim_comentario`).
+
+    Reference catalog only: a single-table `SELECT DISTINCT` against
+    `dim_comentario`, NEVER joined to `tbl_leads`. Rows never carry an
+    `IDPROSPECTO` column or any other per-lead linkage.
+    """
+
+    con = sqlite3.connect(ctx.db_path)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT DISTINCT comentario_id, categoria_comentario FROM dim_comentario;")
+        rows = cur.fetchall()
+    finally:
+        con.close()
+
+    result_rows = [{"comentario_id": row[0], "categoria_comentario": row[1]} for row in rows]
+    return SkillResult(skill="catalogo_categorias_comentario", rows=result_rows, citation=None)

@@ -21,8 +21,11 @@ import pytest
 from skills import (
     SkillContext,
     SkillValidationError,
+    catalogo_categorias_comentario,
+    catalogo_hobbies,
     explicar_tier_de_lead,
     listar_leads_priorizados,
+    resumen_por_cluster,
 )
 
 
@@ -108,6 +111,58 @@ class TestExplicarTierDeLead:
         ctx = SkillContext(db_path=tmp_db_path)
         with pytest.raises(SkillValidationError):
             explicar_tier_de_lead(ctx, idprospecto=999)
+
+
+class TestResumenPorCluster:
+    def test_counts_leads_per_cluster_unfiltered(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        result = resumen_por_cluster(ctx)
+
+        assert result.skill == "resumen_por_cluster"
+        conteo = {row["Cluster"]: row["cantidad_leads"] for row in result.rows}
+        # FIXTURE_LEADS: Cluster 2 x4 (ids 1,2,3,7), Cluster 1 x2 (ids 4,6), Cluster 0 x2 (ids 5,8)
+        assert conteo == {0: 2, 1: 2, 2: 4}
+
+    def test_counts_leads_per_cluster_filtered_by_hobby(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        result = resumen_por_cluster(ctx, hobby_estandar="Deportes")
+
+        # Deportes leads: id 2 (Cluster 2), id 5 (Cluster 0), id 8 (Cluster 0)
+        conteo = {row["Cluster"]: row["cantidad_leads"] for row in result.rows}
+        assert conteo == {0: 2, 2: 1}
+
+    def test_unknown_hobby_raises_skill_validation_error(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        with pytest.raises(SkillValidationError):
+            resumen_por_cluster(ctx, hobby_estandar="Ajedrez")
+
+
+class TestCatalogoHobbies:
+    def test_lists_full_hobby_vocabulary_without_citation(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        result = catalogo_hobbies(ctx)
+
+        assert result.skill == "catalogo_hobbies"
+        assert result.citation is None
+        nombres = {row["hobby_estandar"] for row in result.rows}
+        assert nombres == {"Lectura", "Deportes", "Musica"}
+        assert len(result.rows) == 3
+        assert all("hobby_id" in row for row in result.rows)
+
+
+class TestCatalogoCategoriasComentario:
+    def test_lists_categories_without_lead_linkage(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        result = catalogo_categorias_comentario(ctx)
+
+        assert result.skill == "catalogo_categorias_comentario"
+        assert result.citation is None
+        categorias = {row["categoria_comentario"] for row in result.rows}
+        assert categorias == {"Queja", "Elogio", "Consulta"}
+        assert len(result.rows) == 3
+        for row in result.rows:
+            assert set(row.keys()) == {"comentario_id", "categoria_comentario"}
+            assert "IDPROSPECTO" not in row
 
 
 class TestListarLeadsPriorizadosSignature:
