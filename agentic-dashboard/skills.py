@@ -15,6 +15,7 @@ context, not an import target (its flat `from logic_priorizacion import
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 
 
@@ -50,6 +51,11 @@ class SkillContext:
 class CitationMissing(Exception):
     """Raised when a `SkillResult` row exposes a business-threshold-derived
     field (e.g. `tier_prioridad`) without an accompanying citation."""
+
+
+class SkillValidationError(Exception):
+    """Raised when a skill receives an argument that fails domain validation
+    (e.g. an unknown `hobby_estandar` or an unknown `IDPROSPECTO`)."""
 
 
 @dataclass(frozen=True)
@@ -191,3 +197,123 @@ def banda_probabilidad(probabilidad_compra: float) -> str:
     if probabilidad_compra >= thresholds.umbral_medio:
         return f"Media ({thresholds.umbral_medio:.2f}-{thresholds.umbral_alto:.2f})"
     return f"Baja (< {thresholds.umbral_medio:.2f})"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: skill implementations
+#
+# Every skill opens its own short-lived sqlite3 connection against the
+# explicit `ctx.db_path` (never a path guessed relative to `__file__`).
+# `Cluster` and `Probabilidad_Compra` are read directly from `tbl_leads` and
+# are never recomputed here. `dim_comentario` is NEVER joined to `tbl_leads`
+# at the row level, in any skill, ever.
+# ---------------------------------------------------------------------------
+
+
+def _fetch_all_leads(db_path: str) -> list[dict]:
+    """Read the unfiltered lead population from `tbl_leads`."""
+
+    con = sqlite3.connect(db_path)
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT IDPROSPECTO, Cluster, Probabilidad_Compra, Hobbies_Estandar "
+            "FROM tbl_leads;"
+        )
+        rows = cur.fetchall()
+    finally:
+        con.close()
+
+    return [
+        {
+            "IDPROSPECTO": row[0],
+            "Cluster": row[1],
+            "Probabilidad_Compra": row[2],
+            "Hobbies_Estandar": row[3],
+        }
+        for row in rows
+    ]
+
+
+def _validate_hobby_estandar(db_path: str, hobby_estandar: str) -> None:
+    """Raise `SkillValidationError` unless `hobby_estandar` exists in `dim_hobby`."""
+
+    con = sqlite3.connect(db_path)
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT 1 FROM dim_hobby WHERE hobby_estandar = ?;",
+            (hobby_estandar,),
+        )
+        found = cur.fetchone() is not None
+    finally:
+        con.close()
+
+    if not found:
+        raise SkillValidationError(f"Unknown hobby_estandar: {hobby_estandar!r}")
+
+
+def listar_leads_priorizados(
+    ctx: SkillContext,
+    hobby_estandar: str | None = None,
+    tier: str | None = None,
+    limit: int = 50,
+) -> SkillResult:
+    """List leads ranked by contact priority.
+
+    Ranks the FULL lead population with `orden_contacto` before any hobby or
+    tier filtering, then filters the already-ranked result set in-memory on
+    an exact `Hobbies_Estandar` / `tier_prioridad` match. This preserves the
+    `orden_contacto` values computed from the full population — filtering is
+    never a SQL JOIN and never re-ranks the filtered subset.
+    """
+
+    if hobby_estandar is not None:
+        _validate_hobby_estandar(ctx.db_path, hobby_estandar)
+
+    ranked = orden_contacto(_fetch_all_leads(ctx.db_path), ctx.thresholds)
+
+    if hobby_estandar is not None:
+        ranked = [row for row in ranked if row["Hobbies_Estandar"] == hobby_estandar]
+    if tier is not None:
+        ranked = [row for row in ranked if row["tier_prioridad"] == tier]
+
+    ranked = ranked[:limit]
+
+    citation = ThresholdCitation.from_thresholds(ctx.thresholds)
+    return SkillResult(skill="listar_leads_priorizados", rows=ranked, citation=citation)
+
+
+def explicar_tier_de_lead(ctx: SkillContext, idprospecto: int) -> SkillResult:
+    """Explain the priority tier assigned to a single lead.
+
+    Looks up exactly one lead by `IDPROSPECTO` and computes its
+    `tier_prioridad` directly (no ranking against the rest of the
+    population). Raises `SkillValidationError` for an unknown id.
+    """
+
+    con = sqlite3.connect(ctx.db_path)
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT IDPROSPECTO, Cluster, Probabilidad_Compra, Hobbies_Estandar "
+            "FROM tbl_leads WHERE IDPROSPECTO = ?;",
+            (idprospecto,),
+        )
+        row = cur.fetchone()
+    finally:
+        con.close()
+
+    if row is None:
+        raise SkillValidationError(f"Unknown idprospecto: {idprospecto!r}")
+
+    lead = {
+        "IDPROSPECTO": row[0],
+        "Cluster": row[1],
+        "Probabilidad_Compra": row[2],
+        "Hobbies_Estandar": row[3],
+        "tier_prioridad": tier_prioridad(row[1], row[2], ctx.thresholds),
+    }
+
+    citation = ThresholdCitation.from_thresholds(ctx.thresholds)
+    return SkillResult(skill="explicar_tier_de_lead", rows=[lead], citation=citation)
