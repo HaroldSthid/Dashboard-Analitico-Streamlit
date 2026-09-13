@@ -334,10 +334,16 @@
         Cada pregunta al chat escribe una nota en Markdown con wikilinks. Abrí esa carpeta como
         vault en Obsidian y el Graph View arma solo la topología — sin que nadie dibuje nada a mano.
       </p>
-      <figure class="shot" style="max-width: 560px;">
-        <img src="assets/site/obsidian-graph.png" alt="Graph View de Obsidian mostrando nodos de trazas conectados al Orchestrator, el Agent LeadHarness, y las Skills invocadas">
-        <figcaption>Nodos naranjas = corridas reales. Nodos grises = Orchestrator/Agent/Skill — sin archivo propio, solo wikilinks que Obsidian igual grafica.</figcaption>
-      </figure>
+      <div class="grid cards">
+        <figure class="shot">
+          <img src="assets/site/obsidian-graph.png" alt="Graph View de Obsidian mostrando nodos de trazas conectados al Orchestrator, el Agent LeadHarness, y las Skills invocadas">
+          <figcaption>Nodos naranjas = corridas reales. Nodos grises = Orchestrator/Agent/Skill — sin archivo propio, solo wikilinks que Obsidian igual grafica.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="assets/site/obsidian-graph-2.png" alt="Graph View de Obsidian con más corridas acumuladas, mostrando los nodos de skill interpretar_cluster, resumen_por_cluster y explicar_tier_de_lead conectados al agentic-dashboard y LeadHarness">
+          <figcaption>Con más preguntas hechas, el grafo crece solo — cada skill nueva invocada aparece como su propio nodo.</figcaption>
+        </figure>
+      </div>
 
       <p class="meta" style="margin-top: 18px;">
         Construido igual que el resto del capítulo — Spec-Driven Development, esta vez en 8
