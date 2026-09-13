@@ -1,4 +1,4 @@
-"""Static boundary tests for `app.py` (Phase 6, tasks 6.1-6.4).
+"""Static boundary tests for `app.py` (Phase 6, tasks 6.1-6.4; PR7; PR8).
 
 `app.py` is the Streamlit UI entry point wiring `Harness` (agent_harness.py),
 `build_gateway()` (gateways.py), `SkillContext` (skills.py), and
@@ -8,6 +8,55 @@ runner. Instead they parse its source with `ast` and assert its import
 surface and business-logic boundary statically, which is exactly what a UI
 layer's contract needs to prove: it wires the harness, it does not reimplement
 or bypass it.
+
+## PR8: deliberate revision of the business-logic boundary check
+
+Through PR7, `FORBIDDEN_SOURCE_TOKENS` banned the literal substrings
+`Cluster` and `Probabilidad_Compra` anywhere in `app.py`'s raw source. PR7
+worked around this via positional column access (`df.columns[0]`) instead
+of touching the list. PR8 needs sidebar filter widgets and a second chart
+tab that reference `Cluster`, `Probabilidad_Compra`, `IDPROSPECTO`,
+`Hobbies_Estandar`, and `tier_prioridad` directly as dict/DataFrame KEY
+NAMES (e.g. `row["Cluster"] in selected_clusters`), and needs to import and
+call the already-ported `banda_probabilidad()` skill function directly
+(the same legitimate "call the skill, render its output" pattern PR7
+already established for `listar_leads_priorizados`/`resumen_por_cluster`).
+Continuing to dodge the old list via positional indexing would make PR8's
+4x-larger filtering surface much harder to read and maintain.
+
+This is a deliberate, documented boundary revision, not a shortcut:
+
+- The ORIGINAL intent of the ban was to stop `app.py` from
+  *recomputing business logic* -- re-deriving a tier from thresholds, or
+  re-deriving a cluster's meaning from raw columns. It was never meant to
+  forbid referencing already-computed field names for filtering, sorting,
+  or display, nor to forbid calling an already-ported pure skill function
+  directly (the exact PR7 precedent above).
+- So PR8 splits the single token list in two:
+    1. `ALLOWED_DATA_FIELD_TOKENS` -- pure column/field names a skill
+       already computed and returned (`Cluster`, `Probabilidad_Compra`,
+       `IDPROSPECTO`, `Hobbies_Estandar`, `tier_prioridad`,
+       `orden_contacto`). These may now appear freely in `app.py`'s source
+       as dict/DataFrame keys. This is an explicit, narrow allowlist, not a
+       blanket removal of the guardrail.
+    2. `FORBIDDEN_SOURCE_TOKENS` -- kept, unchanged in spirit, and still
+       bans every literal threshold-constant NAME (`UMBRAL_`,
+       `umbral_alto`, `umbral_medio`, `cluster_alta_conversion`,
+       `tolerancia_empate`) and `sqlite3`. `app.py` must never define its
+       own copy of a threshold or open a direct DB connection.
+- What is still, and will always be, fully forbidden: `app.py` hardcoding
+  one of the actual threshold NUMBERS (`0.70`, `0.30`, `2`, `0.01`) in a
+  comparison against a Cluster/Probabilidad_Compra-shaped value -- i.e.
+  re-implementing `tier_prioridad`/`orden_contacto`/`banda_probabilidad`'s
+  own `>=`/`<` comparison chain instead of calling the real function. A
+  bare token ban can no longer catch this (the field names it would have
+  keyed off are now legitimately in scope), so
+  `test_app_never_hardcodes_threshold_comparisons` below replaces it with
+  an AST-based check: it walks every `ast.Compare` node in `app.py` and
+  fails if a known threshold numeric literal is compared against anything
+  whose name/key/attribute looks like a probability or cluster value. This
+  stays a real, executable guardrail -- not a removed one -- for exactly
+  the behavior the original list was written to prevent.
 """
 
 from __future__ import annotations
@@ -18,10 +67,9 @@ from pathlib import Path
 APP_PATH = Path(__file__).resolve().parent.parent / "app.py"
 
 # Plain `import x` modules app.py is allowed to use. `plotly.express` is
-# required as of PR7: the persistent dashboard panel renders a bar chart
-# of `resumen_por_cluster()` output via `st.plotly_chart`, mirroring
-# `reference-solution/app.py`'s own `plotly.express` usage -- see
-# `test_app_imports_plotly_express` below.
+# required as of PR7: the persistent dashboard panel renders bar charts
+# via `st.plotly_chart`, mirroring `reference-solution/app.py`'s own
+# `plotly.express` usage -- see `test_app_imports_plotly_express` below.
 ALLOWED_IMPORT_MODULES = {
     "streamlit",
     "pandas",
@@ -29,38 +77,66 @@ ALLOWED_IMPORT_MODULES = {
 }
 
 # `from <module> import <names>` app.py is allowed to use. `skills` gained
-# two names in PR7: the persistent dashboard panel calls
-# `listar_leads_priorizados` / `resumen_por_cluster` directly (not through
-# the harness) to render a default view on page load. This is legitimate
-# per the same boundary this file enforces: the actual business-rule
-# computation stays entirely inside skills.py; app.py only calls its
-# public functions and renders the rows they already return.
+# two names in PR7 (`listar_leads_priorizados`, `resumen_por_cluster`,
+# called directly, not through the harness, to render a default view on
+# page load) and three more in PR8 (`banda_probabilidad`, `catalogo_hobbies`,
+# `interpretar_cluster`, for the sidebar filters and the second chart tab).
+# This is legitimate per the same boundary this file enforces: the actual
+# business-rule computation stays entirely inside skills.py; app.py only
+# calls its public functions and renders the rows they already return.
 ALLOWED_IMPORT_FROM = {
     "__future__": {"annotations"},
     "pathlib": {"Path"},
     "agent_harness": {"Harness", "AgentConfig", "AgentAnswer"},
     "gateways": {"build_gateway"},
-    "skills": {"SkillContext", "listar_leads_priorizados", "resumen_por_cluster"},
+    "skills": {
+        "SkillContext",
+        "listar_leads_priorizados",
+        "resumen_por_cluster",
+        "banda_probabilidad",
+        "catalogo_hobbies",
+        "interpretar_cluster",
+    },
     "trace": {"TraceWriter"},
 }
 
-# Business-logic tokens that must never appear in app.py's raw source.
-# Thresholds, tier/order business fields, and business functions all live in
-# skills.py / agent_harness.py; the UI layer must only ever call
-# `Harness.ask()` and render the resulting `AgentAnswer`.
+# Pure, already-computed data field names -- column/dict keys a skill
+# already returned. Referencing these in app.py for filtering, sorting, or
+# display is presentation-layer plumbing, not a business-rule
+# recomputation (see the PR8 section of the module docstring above), so
+# they are explicitly EXEMPT from FORBIDDEN_SOURCE_TOKENS below.
+ALLOWED_DATA_FIELD_TOKENS = (
+    "Cluster",
+    "Probabilidad_Compra",
+    "IDPROSPECTO",
+    "Hobbies_Estandar",
+    "tier_prioridad",
+    "orden_contacto",
+)
+
+# Business-threshold CONSTANT names (and their comparison-logic function
+# names, where not already exempted above as legitimate direct skill
+# calls) that must never appear in app.py's raw source. Actual thresholds
+# live exclusively in skills.py; the UI layer must only ever call a public
+# skill function (or `Harness.ask()`) and render its output.
 FORBIDDEN_SOURCE_TOKENS = (
     "UMBRAL_",
     "umbral_alto",
     "umbral_medio",
-    "tier_prioridad",
-    "orden_contacto",
-    "banda_probabilidad",
     "cluster_alta_conversion",
     "tolerancia_empate",
-    "Probabilidad_Compra",
-    "Cluster",
     "sqlite3",
 )
+
+# Threshold numeric literals that must never be compared against a
+# probability/cluster-shaped value anywhere in app.py -- see
+# `test_app_never_hardcodes_threshold_comparisons` below.
+_THRESHOLD_NUMERIC_LITERALS = {0.70, 0.7, 0.30, 0.3, 0.01, 2}
+
+# Identifier/key/attribute name fragments (case-insensitive) that mark an
+# `ast.Compare` operand as "probability or cluster shaped" for the same
+# check.
+_LEAD_FIELD_NAME_FRAGMENTS = ("prob", "cluster")
 
 # Backend identifiers that must never appear as selectable widget option
 # strings: there is no backend selector in this UI. `AGENT_LLM_BACKEND` is
@@ -113,6 +189,75 @@ def test_app_source_has_no_business_logic_tokens():
             f"app.py source contains business-logic token {token!r}; business "
             "rules must live in skills.py/agent_harness.py, never in the UI layer"
         )
+
+
+def _stringify_compare_operand(node: ast.AST) -> str:
+    """Best-effort textual fingerprint of a Compare operand's name-ish parts.
+
+    Concatenates every `Name.id`, `Attribute.attr`, and string-literal
+    `Constant` value reachable inside `node` (e.g. a `Subscript` like
+    `row["Probabilidad_Compra"]` yields `"row" + "Probabilidad_Compra"`).
+    Used only to decide whether an operand "looks like" a probability or
+    cluster value -- see `test_app_never_hardcodes_threshold_comparisons`.
+    """
+
+    parts: list[str] = []
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Name):
+            parts.append(sub.id)
+        elif isinstance(sub, ast.Attribute):
+            parts.append(sub.attr)
+        elif isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+            parts.append(sub.value)
+    return " ".join(parts)
+
+
+def test_app_never_hardcodes_threshold_comparisons():
+    """PR8 guardrail replacing the old blanket `Cluster`/`Probabilidad_Compra`
+    token ban (see the module docstring's PR8 section for the full
+    reasoning). Referencing those field names is now legitimate, so this
+    test instead walks every `ast.Compare` node in app.py and fails if a
+    known threshold numeric literal (0.70, 0.30, 0.01, 2) is compared
+    against an operand whose name/key/attribute looks probability- or
+    cluster-shaped. This is exactly the shape a re-implemented
+    `tier_prioridad`/`banda_probabilidad` comparison chain would take
+    (e.g. `if row["Probabilidad_Compra"] >= 0.70:` or
+    `if row["Cluster"] == 2:`), and calling the real skill functions
+    (already allowlisted above) never produces this AST shape.
+    """
+
+    tree = _parse()
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+
+        operands = [node.left, *node.comparators]
+        fingerprints = [_stringify_compare_operand(op) for op in operands]
+        touches_lead_field = any(
+            fragment in fingerprint.lower()
+            for fingerprint in fingerprints
+            for fragment in _LEAD_FIELD_NAME_FRAGMENTS
+        )
+        if not touches_lead_field:
+            continue
+
+        for op in operands:
+            if (
+                isinstance(op, ast.Constant)
+                and isinstance(op.value, (int, float))
+                and not isinstance(op.value, bool)
+                and op.value in _THRESHOLD_NUMERIC_LITERALS
+            ):
+                violations.append(ast.dump(node))
+
+    assert not violations, (
+        "app.py hardcodes a threshold numeric literal in a comparison "
+        f"against a probability/cluster-shaped value: {violations}. Call "
+        "the real skills.py function (tier_prioridad/banda_probabilidad) "
+        "instead of re-implementing its comparison chain."
+    )
 
 
 def test_app_has_no_backend_selector_widget():

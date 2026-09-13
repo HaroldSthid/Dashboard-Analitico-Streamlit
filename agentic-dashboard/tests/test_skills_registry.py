@@ -1,9 +1,16 @@
 """Unit tests for Phase 2 skill implementations and the closed SKILLS registry.
 
-Phase 2 scope: the 5 skill functions (`listar_leads_priorizados`,
+Phase 2 scope: the 5 original skill functions (`listar_leads_priorizados`,
 `explicar_tier_de_lead`, `resumen_por_cluster`, `catalogo_hobbies`,
 `catalogo_categorias_comentario`), `SkillValidationError`, the closed
 `SKILLS` registry, and `TOOLS_SCHEMA`.
+
+PR8 registers a 6th skill, `interpretar_cluster` (see
+`test_skills_interpretar_cluster.py` for its own dedicated coverage). The
+registry's closed-count invariant below is intentionally kept, not
+deleted, as a real guardrail against an uncontrolled/accidental registry
+growth -- it is simply updated from 5 to 6 to reflect this deliberate,
+task-driven addition.
 
 Uses the `tmp_db_path` fixture from `conftest.py` (3-hobby fixture: see
 `FIXTURE_LEADS`, `FIXTURE_HOBBIES`, `FIXTURE_COMENTARIO_CATEGORIAS`).
@@ -26,6 +33,7 @@ from skills import (
     catalogo_categorias_comentario,
     catalogo_hobbies,
     explicar_tier_de_lead,
+    interpretar_cluster,
     listar_leads_priorizados,
     resumen_por_cluster,
 )
@@ -178,13 +186,18 @@ class TestListarLeadsPriorizadosSignature:
 
 
 class TestSkillsRegistry:
-    def test_registry_has_exactly_the_five_phase_2_skills(self):
+    def test_registry_has_exactly_the_six_skills(self):
+        # Was "the five Phase 2 skills" through PR7; PR8 deliberately adds
+        # `interpretar_cluster` as a 6th registered skill (see module
+        # docstring). The closed-registry invariant itself is preserved,
+        # not removed -- an unlisted 7th entry still fails this test.
         assert set(SKILLS.keys()) == {
             "listar_leads_priorizados",
             "explicar_tier_de_lead",
             "resumen_por_cluster",
             "catalogo_hobbies",
             "catalogo_categorias_comentario",
+            "interpretar_cluster",
         }
 
     def test_registry_maps_names_to_the_actual_functions(self):
@@ -193,6 +206,7 @@ class TestSkillsRegistry:
         assert SKILLS["resumen_por_cluster"] is resumen_por_cluster
         assert SKILLS["catalogo_hobbies"] is catalogo_hobbies
         assert SKILLS["catalogo_categorias_comentario"] is catalogo_categorias_comentario
+        assert SKILLS["interpretar_cluster"] is interpretar_cluster
 
     def test_tools_schema_wraps_each_entry_as_openai_function_type(self):
         # Regression test for a real smoke-test finding: a flat
@@ -206,7 +220,7 @@ class TestSkillsRegistry:
             assert set(tool.keys()) == {"type", "function"}
 
     def test_tools_schema_has_one_entry_per_registered_skill(self):
-        assert len(TOOLS_SCHEMA) == 5
+        assert len(TOOLS_SCHEMA) == 6
         names = {tool["function"]["name"] for tool in TOOLS_SCHEMA}
         assert names == set(SKILLS.keys())
         for tool in TOOLS_SCHEMA:
