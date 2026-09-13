@@ -93,7 +93,7 @@ def _post_chat_completion(
 ) -> dict:
     """POST a chat-completions request and return the decoded JSON body."""
 
-    with httpx.Client(transport=transport) as client:
+    with httpx.Client(transport=transport, timeout=120.0) as client:
         response = client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()

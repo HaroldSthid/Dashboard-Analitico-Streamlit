@@ -194,20 +194,32 @@ class TestSkillsRegistry:
         assert SKILLS["catalogo_hobbies"] is catalogo_hobbies
         assert SKILLS["catalogo_categorias_comentario"] is catalogo_categorias_comentario
 
+    def test_tools_schema_wraps_each_entry_as_openai_function_type(self):
+        # Regression test for a real smoke-test finding: a flat
+        # {"name", "description", "parameters"} entry (the pre-fix shape)
+        # is silently ignored by real OpenAI-compatible providers, so no
+        # live model could ever call a tool. See skills.py's TOOLS_SCHEMA
+        # comment for the full story.
+        for tool in TOOLS_SCHEMA:
+            assert tool["type"] == "function"
+            assert "function" in tool
+            assert set(tool.keys()) == {"type", "function"}
+
     def test_tools_schema_has_one_entry_per_registered_skill(self):
         assert len(TOOLS_SCHEMA) == 5
-        names = {tool["name"] for tool in TOOLS_SCHEMA}
+        names = {tool["function"]["name"] for tool in TOOLS_SCHEMA}
         assert names == set(SKILLS.keys())
         for tool in TOOLS_SCHEMA:
-            assert tool["description"]
-            assert "properties" in tool["parameters"]
+            assert tool["function"]["description"]
+            assert "properties" in tool["function"]["parameters"]
 
     def test_tools_schema_has_no_free_sql_parameters(self):
         banned = {"query", "sql", "where"}
         for tool in TOOLS_SCHEMA:
-            properties = set(tool["parameters"].get("properties", {}).keys())
+            function = tool["function"]
+            properties = set(function["parameters"].get("properties", {}).keys())
             assert not (properties & banned), (
-                f"{tool['name']} exposes a free-SQL parameter: {properties & banned}"
+                f"{function['name']} exposes a free-SQL parameter: {properties & banned}"
             )
             for field_name in properties:
                 assert not any(term in field_name.lower() for term in banned)

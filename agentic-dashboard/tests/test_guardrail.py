@@ -51,8 +51,8 @@ class TestTableRowCombination:
         assert result.refused_by is None
 
 
-class TestTextWindowCombination:
-    def test_text_combining_lead_id_and_category_term_within_window_is_refused(self):
+class TestTextWideCombination:
+    def test_text_combining_lead_id_and_category_term_close_together_is_refused(self):
         padding = "x" * 100
         text = f"El lead 7 {padding} dejo una Queja sobre el producto."
 
@@ -63,16 +63,25 @@ class TestTextWindowCombination:
         assert result.refused_by == "comment_guardrail"
         assert result.text == COMMENT_GUARDRAIL_REFUSAL
 
-    def test_text_combination_beyond_window_passes_through(self):
-        padding = "x" * 250
+    def test_text_combination_far_apart_in_the_same_answer_is_still_refused(self):
+        # Regression test for a real smoke-test finding: a live Ollama model
+        # reasoned step by step, mentioning "IDPROSPECTO 1" near the top of
+        # its answer and a fabricated category ("Charlas", a real vocabulary
+        # term) in a numbered list well past 200 characters later. The old
+        # proximity-window check let this through -- refused_by stayed None
+        # on the exact scenario this guardrail exists to catch. The
+        # invariant is "never discuss this lead and a category in the same
+        # answer", not "not too close together", so distance no longer
+        # matters: presence of both, anywhere in the text, must refuse.
+        padding = "x" * 400
         text = f"El lead 3 {padding} menciono una Queja en otro contexto."
 
         answer = AgentAnswer(text=text)
 
         result = enforce_comment_guardrail(answer, frozenset({3}), VOCABULARY)
 
-        assert result is answer
-        assert result.refused_by is None
+        assert result.refused_by == "comment_guardrail"
+        assert result.text == COMMENT_GUARDRAIL_REFUSAL
 
     def test_accent_and_case_insensitive_matching(self):
         text = "El lead 2 genero una RECLAMACION fuerte."
@@ -102,6 +111,37 @@ class TestPassthroughCases:
 
         assert result is answer
         assert result.refused_by is None
+
+    def test_numbered_list_markers_do_not_false_positive_on_full_population(self):
+        # Regression test for a real smoke-test finding: with the full lead
+        # population as lead_ids (hundreds of ids, so almost every small
+        # integer is "valid"), a markdown numbered list combined with a
+        # generic single-word vocabulary term must NOT trigger the guardrail
+        # -- "1." here is a list marker, not a reference to lead id 1.
+        text = (
+            "La prioridad depende de varios factores:\n"
+            "1. Rentabilidad esperada\n"
+            "2. Tiempo de cierre\n"
+            "3. Historial de VENTA previo"
+        )
+        answer = AgentAnswer(text=text)
+
+        result = enforce_comment_guardrail(
+            answer, frozenset(range(1, 623)), ("VENTA", "Queja")
+        )
+
+        assert result is answer
+        assert result.refused_by is None
+
+    def test_prospecto_marker_word_also_counts_as_lead_reference(self):
+        padding = "x" * 10
+        text = f"El prospecto 9 {padding} dejo una Queja sobre el servicio."
+
+        answer = AgentAnswer(text=text)
+
+        result = enforce_comment_guardrail(answer, frozenset({9}), VOCABULARY)
+
+        assert result.refused_by == "comment_guardrail"
 
     def test_empty_lead_ids_never_matches(self):
         answer = AgentAnswer(

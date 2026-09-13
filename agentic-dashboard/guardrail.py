@@ -48,14 +48,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - import-time only, never at runtime
     from agent_harness import AgentAnswer
 
-# Roughly how close (in normalized-text character positions) a lead id and a
-# vocabulary term must be to count as "in the same breath". This is a loose,
-# documented approximation ("roughly a 200-character window" per the task),
-# implemented as the absolute distance between each match's start position —
-# simpler than true interval-overlap distance and conservative enough to
-# catch same-sentence / same-paragraph co-occurrence without requiring exact
-# span geometry.
-_TEXT_WINDOW_CHARS = 200
+# A proximity window was tried first (per the original task text) and
+# removed after a real smoke test defeated it: a live Ollama model, when
+# reasoning step by step, mentioned the lead id near the top of its answer
+# and its (fabricated) category conclusion in a numbered list well past 200
+# normalized characters later -- the two matches were in the same answer,
+# discussing the same lead, but too far apart for a fixed-width window to
+# catch. The underlying invariant is not "id and term must be textually
+# close" -- it is "this answer must never discuss a specific lead's
+# identity/tier together with comment-category information, at all". So the
+# check below is presence-anywhere-in-the-answer, not proximity: strictly
+# more conservative, and directly closes the gap the live test exposed.
 
 COMMENT_GUARDRAIL_REFUSAL = (
     "I can't answer that: it would combine an individual lead identifier "
@@ -77,11 +80,29 @@ def _normalize(text: str) -> str:
     return stripped.lower()
 
 
+# Words that must precede a bare number for it to count as a *lead reference*
+# rather than an arbitrary digit (a list marker, a percentage, a count). This
+# was added after a real smoke-test run against a live Ollama model produced
+# a false positive: with the full lead population as `lead_ids` (hundreds of
+# ids, i.e. almost every small integer), a plain markdown numbered list
+# ("1. Valor potencial...") matched "id 1"/"id 2" purely by coincidence, with
+# no actual lead reference nearby. Matching now requires a lead-reference
+# word within a short proximity window immediately before the digit — the
+# same structural discipline `_row_has_lead_id_value` already applies via
+# its key-marker check for table rows.
+_LEAD_TEXT_MARKERS = ("idprospecto", "prospecto", "lead")
+_LEAD_MARKER_PROXIMITY_CHARS = 25
+
+
 def _find_id_positions(haystack: str, lead_ids: frozenset[int]) -> list[int]:
     positions: list[int] = []
     for lead_id in lead_ids:
         pattern = re.compile(rf"(?<!\d){re.escape(str(lead_id))}(?!\d)")
-        positions.extend(match.start() for match in pattern.finditer(haystack))
+        for match in pattern.finditer(haystack):
+            window_start = max(0, match.start() - _LEAD_MARKER_PROXIMITY_CHARS)
+            preceding = haystack[window_start : match.start()]
+            if any(marker in preceding for marker in _LEAD_TEXT_MARKERS):
+                positions.append(match.start())
     return positions
 
 
@@ -107,14 +128,7 @@ def _text_has_forbidden_combination(
     if not id_positions:
         return False
     term_positions = _find_term_positions(normalized, vocabulary)
-    if not term_positions:
-        return False
-
-    return any(
-        abs(id_pos - term_pos) <= _TEXT_WINDOW_CHARS
-        for id_pos in id_positions
-        for term_pos in term_positions
-    )
+    return bool(term_positions)
 
 
 # Row keys that identify a lead (never a comment/hobby id, which also
@@ -193,9 +207,13 @@ def enforce_comment_guardrail(
       `lead_ids` with either a `vocabulary` term (case-insensitive,
       word-boundary match) or any `categoria`-labeled non-numeric value
       (closes the invented-category gap — see module docstring).
-    - `answer.text` contains both an id from `lead_ids` and a term from
-      `vocabulary` (accent-normalized, case-insensitive, word-boundary
-      match) within roughly a 200-character window.
+    - `answer.text` contains both a properly-marked lead reference from
+      `lead_ids` (e.g. "IDPROSPECTO 7", "lead 7" — not a bare digit) and a
+      term from `vocabulary` (accent-normalized, case-insensitive,
+      word-boundary match), ANYWHERE in the answer — not just nearby. A
+      proximity window was tried and defeated by a live model that
+      separated the two mentions by a full paragraph; see the module
+      comment above `_find_id_positions` for the incident.
 
     If either check matches, the entire answer is replaced with
     `AgentAnswer(text=COMMENT_GUARDRAIL_REFUSAL, refused_by="comment_guardrail")`.
