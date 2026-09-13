@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -234,9 +235,11 @@ class Harness:
                         refused_by="unknown_tool",
                     )
 
-                messages.append(self._assistant_tool_call_message(response))
+                call_id = f"call_{uuid.uuid4().hex[:24]}"
+                messages.append(self._assistant_tool_call_message(response, call_id))
                 messages.append(
                     self._tool_result_message(
+                        call_id,
                         tool_name,
                         f"Error: tool {tool_name!r} does not exist. "
                         f"Available tools: {sorted(SKILLS)}.",
@@ -264,10 +267,11 @@ class Harness:
                         refused_by="invalid_args",
                     )
 
-                messages.append(self._assistant_tool_call_message(response))
+                call_id = f"call_{uuid.uuid4().hex[:24]}"
+                messages.append(self._assistant_tool_call_message(response, call_id))
                 messages.append(
                     self._tool_result_message(
-                        tool_name, f"Error: invalid arguments: {exc}"
+                        call_id, tool_name, f"Error: invalid arguments: {exc}"
                     )
                 )
                 continue
@@ -300,9 +304,12 @@ class Harness:
                 )
 
             last_citation = result.citation
-            messages.append(self._assistant_tool_call_message(response))
+            call_id = f"call_{uuid.uuid4().hex[:24]}"
+            messages.append(self._assistant_tool_call_message(response, call_id))
             messages.append(
-                self._tool_result_message(tool_name, self._render_result(result))
+                self._tool_result_message(
+                    call_id, tool_name, self._render_result(result)
+                )
             )
             # Loop back to REASON.
 
@@ -442,17 +449,38 @@ class Harness:
             haystack += " " + " ".join(str(value).lower() for value in tool_args.values())
         return any(keyword in haystack for keyword in FORBIDDEN_INTENT_KEYWORDS)
 
-    def _assistant_tool_call_message(self, response: GatewayResponse) -> dict:
+    def _assistant_tool_call_message(self, response: GatewayResponse, call_id: str) -> dict:
+        # OpenAI-compatible shape: tool_calls entries wrap {"type": "function",
+        # "function": {...}} with an id, and "arguments" is a JSON *string*
+        # (not a dict) -- a real Ollama server rejects the flat, dict-arguments
+        # shape with a 400 "invalid tool call arguments" error on the very
+        # next turn. Only found via a live smoke test; FakeGateway-based unit
+        # tests never round-trip this message back through a real provider.
         return {
             "role": "assistant",
             "content": None,
             "tool_calls": [
-                {"name": response.tool_name, "arguments": response.tool_args}
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": response.tool_name,
+                        "arguments": json.dumps(response.tool_args or {}),
+                    },
+                }
             ],
         }
 
-    def _tool_result_message(self, tool_name: str, content: str) -> dict:
-        return {"role": "tool", "name": tool_name, "content": content}
+    def _tool_result_message(self, call_id: str, tool_name: str, content: str) -> dict:
+        # tool_call_id must match the id on the preceding assistant
+        # tool_calls entry -- required by the OpenAI-compatible spec so the
+        # provider can pair a tool result back to its originating call.
+        return {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "name": tool_name,
+            "content": content,
+        }
 
     def _render_result(self, result: SkillResult) -> str:
         payload: dict = {"skill": result.skill, "rows": result.rows}

@@ -97,6 +97,42 @@ class TestHappyPathWithCitation:
         assert "Aqui tienes los leads de tier Alto." in answer.text
         assert len(gateway.calls) == 2
 
+    def test_tool_call_followup_message_matches_openai_wire_format(self, tmp_db_path):
+        # Regression test for a real smoke-test finding: a real Ollama
+        # server returns 400 "invalid tool call arguments" for the
+        # pre-fix message shape (flat tool_calls entry, arguments as a
+        # dict, no tool_call_id on the result). FakeGateway happily
+        # accepted any shape, so this was invisible until a live provider
+        # round-tripped it. See agent_harness.py's
+        # `_assistant_tool_call_message`/`_tool_result_message` comments.
+        gateway = FakeGateway(
+            [
+                _tool_call("listar_leads_priorizados", {"tier": "Alto"}),
+                _text("Listo."),
+            ]
+        )
+        ctx = SkillContext(db_path=tmp_db_path)
+        harness = Harness(AgentConfig(gateway=gateway, skill_context=ctx))
+
+        harness.ask("Dame los leads de tier alto")
+
+        assert len(gateway.calls) == 2
+        second_call_messages, _ = gateway.calls[1]
+        assistant_msg, tool_msg = second_call_messages[-2:]
+
+        assert assistant_msg["role"] == "assistant"
+        assert assistant_msg["content"] is None
+        tool_call = assistant_msg["tool_calls"][0]
+        assert "id" in tool_call and tool_call["id"]
+        assert tool_call["type"] == "function"
+        assert tool_call["function"]["name"] == "listar_leads_priorizados"
+        # arguments MUST be a JSON string, not a dict, per the OpenAI spec.
+        assert isinstance(tool_call["function"]["arguments"], str)
+
+        assert tool_msg["role"] == "tool"
+        assert tool_msg["tool_call_id"] == tool_call["id"]
+        assert tool_msg["name"] == "listar_leads_priorizados"
+
     def test_does_not_duplicate_citation_already_present_in_model_text(self, tmp_db_path):
         ctx = SkillContext(db_path=tmp_db_path)
         # Discover the exact citation text ahead of time via a throwaway call.
