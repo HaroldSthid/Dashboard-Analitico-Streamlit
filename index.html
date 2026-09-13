@@ -17,6 +17,7 @@
       <a href="#caso">El caso</a>
       <a href="#roles">Los 3 roles</a>
       <a href="#runbook">Cómo correrlo</a>
+      <a href="#agentico">Extensión agéntica</a>
       <a href="#proceso">Cómo se construyó</a>
       <a href="#potencia">IA: potencia, no reemplaza</a>
       <a href="#repo">Repo &amp; datos</a>
@@ -41,10 +42,12 @@
         <a class="button secondary" href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit" target="_blank" rel="noopener">Repo en GitHub ↗</a>
       </div>
       <p class="meta" style="margin-top: 14px;">
-        Este repo no ship-ea un dashboard funcionando — ship-ea los specs, el dataset y un
-        protocolo probado (<a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/blob/main/RUNBOOK.md" target="_blank" rel="noopener"><code>RUNBOOK.md</code></a>) para que
+        El capítulo original no ship-ea un dashboard funcionando — ship-ea los specs, el
+        dataset y un protocolo probado (<a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/blob/main/RUNBOOK.md" target="_blank" rel="noopener"><code>RUNBOOK.md</code></a>) para que
         vos (o un code agent en VS Code) construyas el dashboard vos mismo. Ver también
         <a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/blob/main/EXERCISE.md" target="_blank" rel="noopener"><code>EXERCISE.md</code></a>.
+        Lo que sí viene <strong>construido y mergeado</strong> es la <a href="#agentico">extensión
+        agéntica</a> de más abajo — una capa distinta, agregada después sobre esa misma base.
       </p>
     </section>
 
@@ -162,8 +165,76 @@
       </div>
     </section>
 
+    <section id="agentico" class="section">
+      <h2 class="section-title">Extensión: Dashboard Agéntico</h2>
+      <p class="meta">
+        Todo lo de arriba es el ejercicio original: vos construís <code>reference-solution/app.py</code>
+        con tu code agent, siguiendo el RUNBOOK. Esto de acá es una capa nueva, agregada
+        después, sobre esa misma base — un agente de IA de verdad (no el code agent que te
+        ayuda a programar: un agente que corre <em>dentro</em> del dashboard y responde
+        preguntas de negocio) envuelto en specs, guardrails y trazabilidad. Vive en
+        <a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/tree/main/agentic-dashboard" target="_blank" rel="noopener"><code>agentic-dashboard/</code></a>,
+        y a diferencia del capítulo original, <strong>esta parte sí viene construida y
+        mergeada</strong> — no es un ejercicio para que hagas vos.
+      </p>
+
+      <div class="grid cards">
+        <div class="card">
+          <span class="eyebrow">Specs</span>
+          <h3 style="margin-top: 12px;">Contratos, no vibes</h3>
+          <p class="meta">Cada skill tiene un schema Pydantic — el modelo no puede improvisar qué parámetros manda.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">Skills</span>
+          <h3 style="margin-top: 12px;">5 funciones puras, registro cerrado</h3>
+          <p class="meta">La lógica de negocio (tiers, umbrales) vive acá, reimplementada — nunca importada — desde <code>reference-solution/</code>.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">Harness</span>
+          <h3 style="margin-top: 12px;">Razonar → elegir skill → ejecutar → reintentar</h3>
+          <p class="meta">OpenRouter u Ollama, intercambiables por variable de entorno — nunca elegibles desde la UI.</p>
+        </div>
+        <div class="card">
+          <span class="eyebrow">Observabilidad</span>
+          <h3 style="margin-top: 12px;">Cada corrida, una nota en Obsidian</h3>
+          <p class="meta">Trazas en Markdown con wikilinks — el Graph View arma solo la topología Orchestrator → Agent → Skill.</p>
+        </div>
+      </div>
+
+      <div class="grid cards" style="margin-top: 18px;">
+        <div class="card full soft warn">
+          <h3>El dashboard prevalece — el chat es un agregado, no un reemplazo</h3>
+          <p class="meta">
+            La primera versión de esta extensión era solo un chat: tablas y gráficos aparecían
+            únicamente si el modelo decidía incluirlos en una respuesta puntual. Se corrigió
+            antes de darlo por terminado — la app ahora abre con un panel fijo (KPIs, tabla de
+            leads priorizados, gráfico de distribución) que no depende de preguntarle nada al
+            agente, y el chat vive debajo, como una forma adicional de consultar los mismos
+            datos, no como la interfaz principal.
+          </p>
+        </div>
+        <div class="card full">
+          <h3>Un guardrail real, encontrado corriendo el modelo de verdad</h3>
+          <p class="meta">
+            <code>dim_comentario</code> nunca se une a un lead — ninguna skill lo permite. Pero
+            un smoke test en vivo contra Ollama encontró que un modelo, razonando en varios
+            párrafos, podía combinar un <code>IDPROSPECTO</code> real con una categoría real de
+            comentario más lejos de lo que un chequeo por "cercanía de texto" alcanzaba a
+            cubrir. El guardrail se corrigió para no depender de la distancia: si ambos
+            aparecen en la misma respuesta, se rechaza, sin importar cuánto texto los separe.
+          </p>
+        </div>
+      </div>
+
+      <p class="meta" style="margin-top: 18px;">
+        Construido igual que el resto del capítulo — Spec-Driven Development, esta vez en 7
+        pull requests encadenados (<a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/pulls?q=is%3Apr+is%3Amerged" target="_blank" rel="noopener">ver PRs mergeados ↗</a>),
+        cada uno verificado de forma independiente antes de mergear.
+      </p>
+    </section>
+
     <section id="proceso" class="section">
-      <h2 class="section-title">Cómo se construyó</h2>
+      <h2 class="section-title">Cómo se construyó (el capítulo original)</h2>
       <p class="meta">
         Todo el capítulo se armó con <strong>Spec-Driven Development</strong>: exploración → propuesta →
         spec → diseño → tareas → aplicar → verificar → archivar. Cada fase quedó documentada en
