@@ -99,6 +99,9 @@ img { max-width: 100%; display: block; }
   box-shadow: var(--shadow);
 }
 
+a.card { display: block; text-decoration: none; color: inherit; }
+a.card:hover { border-top-color: var(--accent-green); }
+
 .hero { padding: 36px; }
 
 .eyebrow {
@@ -231,6 +234,30 @@ h1 {
   font-size: 2.4rem;
   font-weight: 800;
   letter-spacing: -0.03em;
+}
+
+/* Screenshots */
+figure.shot {
+  margin: 0;
+  grid-column: span 6;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+@media (max-width: 860px) {
+  figure.shot { grid-column: 1 / -1; }
+}
+
+figure.shot img { width: 100%; }
+
+figure.shot figcaption {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
 }
 
 /* Code blocks */

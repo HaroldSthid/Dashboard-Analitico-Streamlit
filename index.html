@@ -51,6 +51,34 @@
       </p>
     </section>
 
+    <section id="empezar" class="section">
+      <h2 class="section-title">¿Por dónde empezás?</h2>
+      <p class="meta">
+        Este capítulo sirve dos lecturas distintas. Elegí la tuya — podés cambiar en cualquier
+        momento, la otra sigue un scroll más abajo.
+      </p>
+      <div class="grid cards">
+        <a class="card full" href="#roles">
+          <span class="eyebrow">Data Scientist / Analyst</span>
+          <h3 style="margin-top: 12px;">Empezá por los 3 roles</h3>
+          <p class="meta">
+            Reglas de negocio, umbrales, interpretación de clusters — la parte de este capítulo
+            que se resuelve con pandas, sqlite y criterio de negocio. Arrancá en
+            <code>Los 3 roles</code> y seguí el <code>RUNBOOK</code>.
+          </p>
+        </a>
+        <a class="card full" href="#agentico">
+          <span class="eyebrow">AI Engineer</span>
+          <h3 style="margin-top: 12px;">Empezá por el Harness</h3>
+          <p class="meta">
+            Specs, skills, guardrails, un loop de agente real corriendo contra Ollama/OpenRouter
+            — la arquitectura que envuelve esas mismas reglas de negocio. Saltá directo a la
+            <code>extensión agéntica</code>.
+          </p>
+        </a>
+      </div>
+    </section>
+
     <section id="caso" class="section">
       <h2 class="section-title">El caso</h2>
       <p class="meta">
@@ -186,8 +214,8 @@
         </div>
         <div class="card">
           <span class="eyebrow">Skills</span>
-          <h3 style="margin-top: 12px;">5 funciones puras, registro cerrado</h3>
-          <p class="meta">La lógica de negocio (tiers, umbrales) vive acá, reimplementada — nunca importada — desde <code>reference-solution/</code>.</p>
+          <h3 style="margin-top: 12px;">6 funciones puras, registro cerrado</h3>
+          <p class="meta">La lógica de negocio (tiers, umbrales, interpretación de cluster) vive acá, reimplementada — nunca importada — desde <code>reference-solution/</code>.</p>
         </div>
         <div class="card">
           <span class="eyebrow">Harness</span>
@@ -199,6 +227,81 @@
           <h3 style="margin-top: 12px;">Cada corrida, una nota en Obsidian</h3>
           <p class="meta">Trazas en Markdown con wikilinks — el Graph View arma solo la topología Orchestrator → Agent → Skill.</p>
         </div>
+      </div>
+
+      <h3 style="margin-top: 32px;">Cómo corre una pregunta, paso a paso</h3>
+      <p class="meta">
+        Nada de esto es una caja negra. Cada pregunta al chat pasa por los mismos 5 pasos,
+        siempre en el mismo orden:
+      </p>
+
+      <div class="timeline">
+        <div class="step">
+          <span class="step-number">1</span>
+          <div>
+            <h3>Reason</h3>
+            <p>El harness arma la conversación y se la manda al modelo junto con <code>TOOLS_SCHEMA</code> — la lista de las 6 skills disponibles, cada una con su schema Pydantic. El modelo no ve el código, solo el contrato.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-number">2</span>
+          <div>
+            <h3>Select</h3>
+            <p>El modelo devuelve una <code>tool_call</code>. El harness la busca en el registro cerrado — si no existe, o si el nombre/argumentos huelen a algo prohibido (ej. unir <code>dim_comentario</code> a un lead), la rechaza ahí mismo, sin ejecutar nada.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-number">3</span>
+          <div>
+            <h3>Execute</h3>
+            <p>La skill corre aislada contra <code>data/db_dashboard_course.db</code>. Nunca recalcula un umbral ni un cluster — esos ya vienen del pipeline de Módulo 4. Solo lee y ordena.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-number">4</span>
+          <div>
+            <h3>Observe / Retry</h3>
+            <p>El resultado vuelve al modelo. Si algo falló, el harness reintenta — pero no siempre igual: argumentos inválidos reintentan 2 veces, un timeout de red reintenta con backoff, y una skill inexistente que suena a intento de saltarse un guardrail <strong>no reintenta nunca</strong>, se corta ahí.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-number">5</span>
+          <div>
+            <h3>Answer</h3>
+            <p>Antes de mostrarse, la respuesta final pasa por el guardrail estructural: si combina un <code>IDPROSPECTO</code> real con una categoría de comentario real — en cualquier parte de la respuesta, no solo cerca — se descarta entera y se reemplaza por un rechazo explícito.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card full" style="margin-top: 18px;">
+        <h3>Así se ve un schema de skill</h3>
+        <p class="meta">Lo que el modelo recibe para poder llamar <code>explicar_tier_de_lead</code> — nada de esto lo escribe el modelo, lo genera Pydantic a partir del código real:</p>
+        <pre class="code-block"><code>{
+  "type": "function",
+  "function": {
+    "name": "explicar_tier_de_lead",
+    "description": "Explain the priority tier assigned to a single lead by IDPROSPECTO.",
+    "parameters": {
+      "properties": {
+        "idprospecto": {"title": "Idprospecto", "type": "integer"}
+      },
+      "required": ["idprospecto"],
+      "type": "object"
+    }
+  }
+}</code></pre>
+      </div>
+
+      <h3 style="margin-top: 32px;">El dashboard, funcionando</h3>
+      <div class="grid cards">
+        <figure class="shot">
+          <img src="assets/site/streamlit-panel.jpg" alt="Panel persistente del Agentic Lead Dashboard: KPIs con delta, filtros de tier/cluster/hobby, y tabla de leads priorizados">
+          <figcaption>El panel fijo — KPIs, filtros y tabla, sin preguntarle nada al agente.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="assets/site/streamlit-chat.jpg" alt="Chat del dashboard respondiendo qué significa el Cluster 2 en términos comerciales, citando datos reales">
+          <figcaption>El chat, respondiendo con datos reales de la skill <code>interpretar_cluster</code>.</figcaption>
+        </figure>
       </div>
 
       <div class="grid cards" style="margin-top: 18px;">
@@ -226,9 +329,20 @@
         </div>
       </div>
 
+      <h3 style="margin-top: 32px;">Cada corrida, un nodo en el grafo</h3>
+      <p class="meta">
+        Cada pregunta al chat escribe una nota en Markdown con wikilinks. Abrí esa carpeta como
+        vault en Obsidian y el Graph View arma solo la topología — sin que nadie dibuje nada a mano.
+      </p>
+      <figure class="shot" style="max-width: 560px;">
+        <img src="assets/site/obsidian-graph.png" alt="Graph View de Obsidian mostrando nodos de trazas conectados al Orchestrator, el Agent LeadHarness, y las Skills invocadas">
+        <figcaption>Nodos naranjas = corridas reales. Nodos grises = Orchestrator/Agent/Skill — sin archivo propio, solo wikilinks que Obsidian igual grafica.</figcaption>
+      </figure>
+
       <p class="meta" style="margin-top: 18px;">
-        Construido igual que el resto del capítulo — Spec-Driven Development, esta vez en 7
-        pull requests encadenados (<a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/pulls?q=is%3Apr+is%3Amerged" target="_blank" rel="noopener">ver PRs mergeados ↗</a>),
+        Construido igual que el resto del capítulo — Spec-Driven Development, esta vez en 8
+        pull requests (6 encadenados para la arquitectura base, 2 de seguimiento para el panel
+        del dashboard — <a href="https://github.com/HaroldSthid/Dashboard-Analitico-Streamlit/pulls?q=is%3Apr+is%3Amerged" target="_blank" rel="noopener">ver PRs mergeados ↗</a>),
         cada uno verificado de forma independiente antes de mergear.
       </p>
     </section>
