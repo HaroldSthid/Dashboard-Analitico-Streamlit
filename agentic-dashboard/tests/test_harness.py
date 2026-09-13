@@ -1,15 +1,15 @@
-"""Unit tests for the Phase 4 agent harness core loop.
+"""Unit tests for the Phase 4/5 agent harness core loop.
 
 Phase 4 scope: `AgentConfig`, `AgentAnswer`, `Harness.ask`, and the
 differentiated retry policy per error class (args-validation error, benign
 unknown tool, forbidden-intent hallucinated tool, transient gateway error,
-skill execution error, max_steps exhaustion). No `trace.py` and no `app.py`
-— those are later PRs (PR5-PR6). `enforce_comment_guardrail` (the
-post-generation answer validator) is explicitly PR5 scope and is NOT
-exercised here; see the `# TODO(PR5)` marker in `agent_harness.py`.
+skill execution error, max_steps exhaustion).
 
-See tasks 4.1-4.12 in `sdd/agentic-dashboard/tasks` (4.13/4.14 deferred to
-PR5 per the design v2 correction).
+Phase 5 scope (this file's `TestCommentGuardrailWiring` and
+`TestTraceWriterWiring` classes): `enforce_comment_guardrail` wired as an
+unconditional final step over every terminal `AgentAnswer` (no `app.py` yet
+— that is PR6), and `TraceWriter` wired into `Harness.ask()`. See tasks
+4.1-4.12 and 5.3/5.4/5.6/5.7 in `sdd/agentic-dashboard/tasks`.
 
 Every scenario uses `FakeGateway`, a `ModelGateway` test double that plays
 back a pre-scripted sequence of `GatewayResponse` objects (or exceptions),
@@ -300,3 +300,141 @@ class TestSkillExecutionError:
 
         assert answer.refused_by == "skill_execution_error"
         assert len(gateway.calls) == 1
+
+
+class TestCommentGuardrailWiring:
+    """Tasks 5.3/5.4: `enforce_comment_guardrail` wraps every terminal
+    `AgentAnswer` `Harness.ask()` returns, with no bypass path. The
+    no-tool-call scenario below is the gap PR4 could not close: PR4's
+    `_is_forbidden_intent` only guards a *hallucinated tool call*, never a
+    plain-text answer the model fabricates with no tool call at all."""
+
+    def test_no_tool_call_hallucinated_comment_combo_is_guarded(self, tmp_db_path):
+        # The model never calls a tool -- it answers directly from its own
+        # (hallucinated) "knowledge", combining a real lead id with a real
+        # comment-category term. Nothing in the Phase-4 loop can catch
+        # this: there is no tool call to inspect at all.
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway(
+            [_text("El lead 1 dejo una Queja sobre el producto la semana pasada.")]
+        )
+        harness = Harness(AgentConfig(gateway=gateway, skill_context=ctx))
+
+        answer = harness.ask("Que comento el lead 1 sobre el producto?")
+
+        assert answer.refused_by == "comment_guardrail"
+        assert "dim_comentario" in answer.text
+        assert len(gateway.calls) == 1
+
+    def test_happy_path_without_forbidden_combination_passes_through_unchanged(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway(
+            [
+                _tool_call("listar_leads_priorizados", {"tier": "Alto"}),
+                _text("Aqui tienes los leads de tier Alto."),
+            ]
+        )
+        harness = Harness(AgentConfig(gateway=gateway, skill_context=ctx))
+
+        answer = harness.ask("Dame los leads de tier alto")
+
+        assert answer.refused_by is None
+        assert "Aqui tienes los leads de tier Alto." in answer.text
+
+    def test_hallucinated_tool_refusal_still_passes_through_guardrail_unmodified(self, tmp_db_path):
+        # A refusal produced by the Phase-4 hallucinated-tool guard must
+        # still flow through the Phase-5 guardrail choke point (no bypass
+        # path) -- it just has nothing to flag here (no lead ids were ever
+        # touched, since no skill executed).
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway(
+            [_tool_call("consultar_comentarios_de_lead", {"idprospecto": 1})]
+        )
+        harness = Harness(AgentConfig(gateway=gateway, skill_context=ctx))
+
+        answer = harness.ask("What did lead 1 comment about the product?")
+
+        assert answer.refused_by == "hallucinated_tool"
+
+
+class TestTraceWriterWiring:
+    """Tasks 5.6/5.7: an optional `AgentConfig.trace_writer` records
+    step-by-step run data and is written exactly once at the end of
+    `Harness.ask()`, regardless of outcome."""
+
+    def test_ask_writes_trace_file_on_happy_path(self, tmp_db_path, tmp_path):
+        from trace import TraceWriter
+
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway(
+            [
+                _tool_call("listar_leads_priorizados", {"tier": "Alto"}),
+                _text("Aqui tienes los leads de tier Alto."),
+            ]
+        )
+        trace_writer = TraceWriter(traces_dir=tmp_path)
+        harness = Harness(
+            AgentConfig(gateway=gateway, skill_context=ctx, trace_writer=trace_writer)
+        )
+
+        answer = harness.ask("Dame los leads de tier alto")
+
+        assert answer.refused_by is None
+        trace_files = list(tmp_path.rglob("*.md"))
+        assert len(trace_files) == 1
+        content = trace_files[0].read_text(encoding="utf-8")
+        assert "type: agent-run" in content
+        assert "outcome: answered" in content
+        assert "[[Skill/listar_leads_priorizados]]" in content
+        assert "Dame los leads de tier alto" in content
+
+    def test_ask_writes_trace_file_on_failure_with_retries_logged(self, tmp_db_path, tmp_path):
+        from trace import TraceWriter
+
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway(
+            [_tool_call("foo_inexistente", {}), _tool_call("bar_inexistente", {})]
+        )
+        trace_writer = TraceWriter(traces_dir=tmp_path)
+        harness = Harness(
+            AgentConfig(gateway=gateway, skill_context=ctx, trace_writer=trace_writer)
+        )
+
+        answer = harness.ask("Do something unsupported")
+
+        assert answer.refused_by == "unknown_tool"
+        trace_files = list(tmp_path.rglob("*.md"))
+        assert len(trace_files) == 1
+        content = trace_files[0].read_text(encoding="utf-8")
+        assert "outcome: failed" in content
+        assert "## Retries" in content
+        assert "unknown_tool" in content
+
+    def test_ask_writes_trace_file_on_comment_guardrail_refusal(self, tmp_db_path, tmp_path):
+        from trace import TraceWriter
+
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway(
+            [_text("El lead 1 dejo una Queja sobre el producto.")]
+        )
+        trace_writer = TraceWriter(traces_dir=tmp_path)
+        harness = Harness(
+            AgentConfig(gateway=gateway, skill_context=ctx, trace_writer=trace_writer)
+        )
+
+        answer = harness.ask("Que comento el lead 1?")
+
+        assert answer.refused_by == "comment_guardrail"
+        trace_files = list(tmp_path.rglob("*.md"))
+        assert len(trace_files) == 1
+        content = trace_files[0].read_text(encoding="utf-8")
+        assert "outcome: refused" in content
+
+    def test_ask_does_not_write_trace_file_when_no_trace_writer_configured(self, tmp_db_path, tmp_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        gateway = FakeGateway([_text("Sin trace writer configurado.")])
+        harness = Harness(AgentConfig(gateway=gateway, skill_context=ctx))
+
+        harness.ask("Pregunta cualquiera")
+
+        assert list(tmp_path.rglob("*.md")) == []
