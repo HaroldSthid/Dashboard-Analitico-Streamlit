@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.atl/
+.codegraph/
+streamlit.log
+agentic-dashboard/traces/
