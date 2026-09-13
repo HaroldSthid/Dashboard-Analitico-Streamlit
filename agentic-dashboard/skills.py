@@ -452,11 +452,21 @@ _SKILL_ARGS_MODELS: dict[str, type[BaseModel]] = {
     "catalogo_categorias_comentario": CatalogoCategoriasComentarioArgs,
 }
 
+# Wrapped as {"type": "function", "function": {...}} per the OpenAI/
+# OpenRouter/Ollama chat-completions `tools` spec. A flat {"name", ...}
+# entry (the pre-fix shape) is silently ignored by real providers, so no
+# live model could ever call a tool -- only caught via a real Ollama smoke
+# test, since FakeGateway-based unit tests never round-trip this shape
+# through an actual provider. See gateways.py's _parse_openai_completion
+# for the matching (already-correct) response-side shape.
 TOOLS_SCHEMA: list[dict] = [
     {
-        "name": name,
-        "description": _SKILL_DESCRIPTIONS[name],
-        "parameters": _SKILL_ARGS_MODELS[name].model_json_schema(),
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": _SKILL_DESCRIPTIONS[name],
+            "parameters": _SKILL_ARGS_MODELS[name].model_json_schema(),
+        },
     }
     for name in SKILLS
 ]
