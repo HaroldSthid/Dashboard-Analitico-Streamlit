@@ -16,7 +16,10 @@ context, not an import target (its flat `from logic_priorizacion import
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
+
+from pydantic import BaseModel
 
 
 @dataclass(frozen=True)
@@ -382,3 +385,78 @@ def catalogo_categorias_comentario(ctx: SkillContext) -> SkillResult:
 
     result_rows = [{"comentario_id": row[0], "categoria_comentario": row[1]} for row in rows]
     return SkillResult(skill="catalogo_categorias_comentario", rows=result_rows, citation=None)
+
+
+# ---------------------------------------------------------------------------
+# Closed skills registry and TOOLS_SCHEMA
+#
+# Every entry's argument model uses only explicit, individually-typed
+# fields (no free-form "query" / "sql" / "where" string parameter). This is
+# a hard invariant: skills never accept arbitrary SQL from the caller.
+# ---------------------------------------------------------------------------
+
+
+class ListarLeadsPriorizadosArgs(BaseModel):
+    hobby_estandar: str | None = None
+    tier: str | None = None
+    limit: int = 50
+
+
+class ExplicarTierDeLeadArgs(BaseModel):
+    idprospecto: int
+
+
+class ResumenPorClusterArgs(BaseModel):
+    hobby_estandar: str | None = None
+
+
+class CatalogoHobbiesArgs(BaseModel):
+    pass
+
+
+class CatalogoCategoriasComentarioArgs(BaseModel):
+    pass
+
+
+SKILLS: dict[str, Callable[..., SkillResult]] = {
+    "listar_leads_priorizados": listar_leads_priorizados,
+    "explicar_tier_de_lead": explicar_tier_de_lead,
+    "resumen_por_cluster": resumen_por_cluster,
+    "catalogo_hobbies": catalogo_hobbies,
+    "catalogo_categorias_comentario": catalogo_categorias_comentario,
+}
+
+_SKILL_DESCRIPTIONS: dict[str, str] = {
+    "listar_leads_priorizados": (
+        "List leads ranked by contact priority (orden_contacto), optionally "
+        "filtered by hobby_estandar and/or tier."
+    ),
+    "explicar_tier_de_lead": (
+        "Explain the priority tier assigned to a single lead by IDPROSPECTO."
+    ),
+    "resumen_por_cluster": (
+        "Aggregate lead counts per Cluster, optionally filtered by hobby_estandar."
+    ),
+    "catalogo_hobbies": "List the standardized hobby vocabulary (dim_hobby).",
+    "catalogo_categorias_comentario": (
+        "List comment category vocabulary (dim_comentario) as a reference "
+        "catalog — never joined or linked to individual leads."
+    ),
+}
+
+_SKILL_ARGS_MODELS: dict[str, type[BaseModel]] = {
+    "listar_leads_priorizados": ListarLeadsPriorizadosArgs,
+    "explicar_tier_de_lead": ExplicarTierDeLeadArgs,
+    "resumen_por_cluster": ResumenPorClusterArgs,
+    "catalogo_hobbies": CatalogoHobbiesArgs,
+    "catalogo_categorias_comentario": CatalogoCategoriasComentarioArgs,
+}
+
+TOOLS_SCHEMA: list[dict] = [
+    {
+        "name": name,
+        "description": _SKILL_DESCRIPTIONS[name],
+        "parameters": _SKILL_ARGS_MODELS[name].model_json_schema(),
+    }
+    for name in SKILLS
+]

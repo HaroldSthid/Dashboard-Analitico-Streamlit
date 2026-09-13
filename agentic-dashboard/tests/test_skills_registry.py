@@ -19,6 +19,8 @@ import inspect
 import pytest
 
 from skills import (
+    SKILLS,
+    TOOLS_SCHEMA,
     SkillContext,
     SkillValidationError,
     catalogo_categorias_comentario,
@@ -173,3 +175,50 @@ class TestListarLeadsPriorizadosSignature:
         assert "query" not in params
         assert "sql" not in params
         assert "where" not in params
+
+
+class TestSkillsRegistry:
+    def test_registry_has_exactly_the_five_phase_2_skills(self):
+        assert set(SKILLS.keys()) == {
+            "listar_leads_priorizados",
+            "explicar_tier_de_lead",
+            "resumen_por_cluster",
+            "catalogo_hobbies",
+            "catalogo_categorias_comentario",
+        }
+
+    def test_registry_maps_names_to_the_actual_functions(self):
+        assert SKILLS["listar_leads_priorizados"] is listar_leads_priorizados
+        assert SKILLS["explicar_tier_de_lead"] is explicar_tier_de_lead
+        assert SKILLS["resumen_por_cluster"] is resumen_por_cluster
+        assert SKILLS["catalogo_hobbies"] is catalogo_hobbies
+        assert SKILLS["catalogo_categorias_comentario"] is catalogo_categorias_comentario
+
+    def test_tools_schema_has_one_entry_per_registered_skill(self):
+        assert len(TOOLS_SCHEMA) == 5
+        names = {tool["name"] for tool in TOOLS_SCHEMA}
+        assert names == set(SKILLS.keys())
+        for tool in TOOLS_SCHEMA:
+            assert tool["description"]
+            assert "properties" in tool["parameters"]
+
+    def test_tools_schema_has_no_free_sql_parameters(self):
+        banned = {"query", "sql", "where"}
+        for tool in TOOLS_SCHEMA:
+            properties = set(tool["parameters"].get("properties", {}).keys())
+            assert not (properties & banned), (
+                f"{tool['name']} exposes a free-SQL parameter: {properties & banned}"
+            )
+            for field_name in properties:
+                assert not any(term in field_name.lower() for term in banned)
+
+    def test_no_skill_combines_lead_identifier_with_comentario_category(self, tmp_db_path):
+        ctx = SkillContext(db_path=tmp_db_path)
+        for name, skill_fn in SKILLS.items():
+            params = inspect.signature(skill_fn).parameters
+            if "idprospecto" not in params:
+                continue
+            result = skill_fn(ctx, idprospecto=1)
+            for row in result.rows:
+                assert "categoria_comentario" not in row
+                assert "comentario_id" not in row
