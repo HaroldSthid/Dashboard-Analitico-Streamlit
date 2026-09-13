@@ -18,23 +18,29 @@ from pathlib import Path
 APP_PATH = Path(__file__).resolve().parent.parent / "app.py"
 
 # Plain `import x` modules app.py is allowed to use. `plotly.express` is
-# allowed even though this PR does not import it: `AgentAnswer.chart_spec`
-# exists for future chart rendering, and nothing in the current harness
-# populates it yet, so importing plotly now would be dead code -- but a
-# later PR wiring an actual chart is not a boundary violation.
+# required as of PR7: the persistent dashboard panel renders a bar chart
+# of `resumen_por_cluster()` output via `st.plotly_chart`, mirroring
+# `reference-solution/app.py`'s own `plotly.express` usage -- see
+# `test_app_imports_plotly_express` below.
 ALLOWED_IMPORT_MODULES = {
     "streamlit",
     "pandas",
     "plotly.express",
 }
 
-# `from <module> import <names>` app.py is allowed to use.
+# `from <module> import <names>` app.py is allowed to use. `skills` gained
+# two names in PR7: the persistent dashboard panel calls
+# `listar_leads_priorizados` / `resumen_por_cluster` directly (not through
+# the harness) to render a default view on page load. This is legitimate
+# per the same boundary this file enforces: the actual business-rule
+# computation stays entirely inside skills.py; app.py only calls its
+# public functions and renders the rows they already return.
 ALLOWED_IMPORT_FROM = {
     "__future__": {"annotations"},
     "pathlib": {"Path"},
     "agent_harness": {"Harness", "AgentConfig", "AgentAnswer"},
     "gateways": {"build_gateway"},
-    "skills": {"SkillContext"},
+    "skills": {"SkillContext", "listar_leads_priorizados", "resumen_por_cluster"},
     "trace": {"TraceWriter"},
 }
 
@@ -124,3 +130,19 @@ def test_app_calls_harness_ask():
 
     source = _read_source()
     assert ".ask(" in source, "app.py must drive the conversation through Harness.ask()"
+
+
+def test_app_imports_plotly_express():
+    """PR7: the persistent dashboard panel's chart requires `plotly.express`
+    to actually be imported, not merely tolerated by the allowlist."""
+
+    tree = _parse()
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert "plotly.express" in imported, (
+        "app.py must import plotly.express for the persistent dashboard panel's chart"
+    )
