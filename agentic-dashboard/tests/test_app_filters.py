@@ -132,3 +132,39 @@ class TestDeltaPct:
 
     def test_full_share_is_one_hundred_percent(self):
         assert app._delta_pct(3, 3) == "100.0%"
+
+
+class TestTierByClusterCounts:
+    """Unit tests for `_tier_by_cluster_counts` (PR9): a pure, in-memory
+    aggregation of already-filtered rows into (Cluster, tier_prioridad)
+    counts for the stacked bar chart. Counts values a skill already
+    computed -- never re-derives `Cluster` or `tier_prioridad` -- exactly
+    the same legitimate pattern `_apply_filters` already uses (see
+    `test_app_boundary.py`'s `ALLOWED_DATA_FIELD_TOKENS`).
+    """
+
+    def test_counts_one_row_per_cluster_tier_combination(self):
+        result = app._tier_by_cluster_counts(_ROWS)
+        counts = {(row["Cluster"], row["tier_prioridad"]): row["Leads"] for row in result}
+        assert counts == {
+            (2, "Alto"): 2,
+            (1, "Medio"): 1,
+            (0, "Bajo"): 1,
+        }
+
+    def test_empty_rows_yields_empty_result(self):
+        assert app._tier_by_cluster_counts([]) == []
+
+    def test_result_rows_have_cluster_tier_and_leads_keys(self):
+        result = app._tier_by_cluster_counts(_ROWS)
+        assert all({"Cluster", "tier_prioridad", "Leads"} == set(row) for row in result)
+
+    def test_multiple_rows_in_same_cluster_tier_combination_are_summed(self):
+        rows = [
+            {"Cluster": 2, "tier_prioridad": "Alto"},
+            {"Cluster": 2, "tier_prioridad": "Alto"},
+            {"Cluster": 2, "tier_prioridad": "Medio"},
+        ]
+        result = app._tier_by_cluster_counts(rows)
+        counts = {(row["Cluster"], row["tier_prioridad"]): row["Leads"] for row in result}
+        assert counts == {(2, "Alto"): 2, (2, "Medio"): 1}
