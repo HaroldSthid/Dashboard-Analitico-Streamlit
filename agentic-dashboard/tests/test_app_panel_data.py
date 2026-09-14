@@ -57,3 +57,22 @@ def test_load_panel_data_all_rows_are_already_ranked(tmp_db_path):
 def test_load_panel_data_hobby_options_match_fixture_vocabulary(tmp_db_path):
     data = app._load_panel_data(tmp_db_path)
     assert set(data["hobby_options"]) == {"Lectura", "Deportes", "Musica"}
+
+
+def test_load_comment_catalog_matches_fixture_vocabulary(tmp_db_path):
+    """PR9: `_load_comment_catalog` calls `catalogo_categorias_comentario`
+    directly (same cached-sibling-function pattern as `_load_panel_data`)
+    and returns its rows unchanged for the sidebar catalog expander."""
+
+    rows = app._load_comment_catalog(tmp_db_path)
+    categorias = {row["categoria_comentario"] for row in rows}
+    assert categorias == {"Queja", "Elogio", "Consulta"}
+
+
+def test_load_comment_catalog_rows_never_carry_a_lead_identifier(tmp_db_path):
+    """dim_comentario is a reference catalog only -- rows must never carry
+    an IDPROSPECTO or any other per-lead linkage (mirrors
+    `catalogo_categorias_comentario`'s own skill-layer guarantee)."""
+
+    rows = app._load_comment_catalog(tmp_db_path)
+    assert all("IDPROSPECTO" not in row for row in rows)

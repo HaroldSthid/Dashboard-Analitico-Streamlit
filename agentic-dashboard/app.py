@@ -32,6 +32,23 @@ never a skill call per filter combination, and never a re-ranking of the
 filtered subset. KPIs and both chart tabs are then recomputed from that
 filtered subset, never from the original unfiltered fetch.
 
+PR9 adds four more UI/UX refinements (same reference-dashboard-as-ideas
+provenance as PR8): typed `st.column_config` formatting on the Priority
+Leads table; a tier-by-cluster STACKED bar chart replacing the first
+tab's single-color one (`_tier_by_cluster_counts`, a pure count of
+already-filtered rows -- unit-tested in `test_app_filters.py`, same
+legitimate presentation-aggregation pattern as `_apply_filters`); a
+probability histogram, colored by `tier_prioridad`, with `fig.add_vline`
+reference lines at `Thresholds().umbral_alto` / `.umbral_medio` (read via
+attribute access on an imported `Thresholds` instance -- see
+`test_app_boundary.py`'s PR9 section for why this is legitimate and how
+it is guarded), REPLACING the second tab's previous `banda_probabilidad`
+band-count bar chart (that import is dropped -- no longer used); and a
+sidebar `st.sidebar.expander` rendering the `dim_comentario` vocabulary
+catalog via `catalogo_categorias_comentario(ctx)`, cached the same way
+`_load_panel_data()` already caches its own data (`_load_comment_catalog`,
+unit-tested in `test_app_panel_data.py`).
+
 Deliberate boundary-test revision (full reasoning lives in
 `test_app_boundary.py`'s module docstring): building the filter widgets
 and the second chart tab requires referencing already-computed field
@@ -66,7 +83,8 @@ from agent_harness import AgentAnswer, AgentConfig, Harness
 from gateways import build_gateway
 from skills import (
     SkillContext,
-    banda_probabilidad,
+    Thresholds,
+    catalogo_categorias_comentario,
     catalogo_hobbies,
     interpretar_cluster,
     listar_leads_priorizados,
@@ -102,6 +120,19 @@ _HOBBY_ALL_OPTION = "Todos"
 # row's `tier_prioridad` is one of exactly these three strings; this is the
 # same kind of literal label PR7 already used for `col2.metric("Tier Alto", ...)`.
 _ALL_TIERS = ("Alto", "Medio", "Bajo")
+
+# Fixed, readable color per tier -- presentation only, not a business rule.
+# Used consistently across the stacked cluster chart and the probability
+# histogram (PR9) so a tier means the same color in both charts.
+_TIER_COLOR_MAP = {"Alto": "#2ecc71", "Medio": "#f39c12", "Bajo": "#e74c3c"}
+
+# PR9: the single source of truth for the histogram's reference-line
+# positions. Instantiated once, at its own documented defaults -- never a
+# hardcoded number written here. See `test_app_boundary.py`'s PR9 section
+# for why reading `.umbral_alto` / `.umbral_medio` as attribute access on
+# this instance is legitimate (and guarded) while a bare numeric literal
+# is not.
+_THRESHOLDS = Thresholds()
 
 
 @st.cache_resource
@@ -156,6 +187,23 @@ def _load_panel_data(db_path: str) -> dict:
     }
 
 
+@st.cache_data(ttl=_PANEL_CACHE_TTL_SECONDS)
+def _load_comment_catalog(db_path: str) -> list[dict]:
+    """Fetch the `dim_comentario` vocabulary catalog once, cached with the
+    same TTL as the rest of the panel's data (PR9).
+
+    Calls `catalogo_categorias_comentario(ctx)` directly -- the same
+    direct-skill-call pattern already used for `listar_leads_priorizados`/
+    `resumen_por_cluster`/`interpretar_cluster` -- and returns its rows
+    unchanged. `dim_comentario` is a reference vocabulary table only; its
+    rows never carry an `IDPROSPECTO` or any other per-lead linkage (see
+    `catalogo_categorias_comentario`'s own docstring in `skills.py`).
+    """
+
+    ctx = SkillContext(db_path=db_path)
+    return catalogo_categorias_comentario(ctx).rows
+
+
 def _apply_filters(
     rows: list[dict],
     tiers,
@@ -189,6 +237,28 @@ def _apply_filters(
     if idprospecto:
         filtered = [row for row in filtered if row["IDPROSPECTO"] == idprospecto]
     return filtered
+
+
+def _tier_by_cluster_counts(rows: list[dict]) -> list[dict]:
+    """Count already-filtered rows by `(Cluster, tier_prioridad)` (PR9).
+
+    Pure presentation-layer aggregation over fields a skill already
+    computed and returned -- counting existing `Cluster`/`tier_prioridad`
+    values, never re-deriving either one. Exactly the same legitimate
+    pattern `_apply_filters` above already uses (see
+    `ALLOWED_DATA_FIELD_TOKENS` in `test_app_boundary.py`). Feeds the
+    stacked tier-by-cluster bar chart in the first tab.
+    """
+
+    counts: dict[tuple[int, str], int] = {}
+    for row in rows:
+        key = (row["Cluster"], row["tier_prioridad"])
+        counts[key] = counts.get(key, 0) + 1
+
+    return [
+        {"Cluster": cluster, "tier_prioridad": tier, "Leads": count}
+        for (cluster, tier), count in sorted(counts.items())
+    ]
 
 
 def _delta_pct(part: int, whole: int) -> str:
@@ -238,6 +308,24 @@ def _render_sidebar_filters(ctx: SkillContext, data: dict) -> tuple[list, list, 
     return selected_tiers, selected_clusters, selected_hobby, int(selected_idprospecto)
 
 
+def _render_comment_catalog(db_path: str) -> None:
+    """Render the `dim_comentario` vocabulary catalog in a sidebar expander
+    (PR9).
+
+    Calls the cached `_load_comment_catalog()` directly -- never through
+    the harness/LLM -- and renders its rows as-is. The caption reinforces
+    the guardrail `catalogo_categorias_comentario` already enforces at the
+    skill layer: this catalog is vocabulary only and is never joined to
+    individual leads.
+    """
+
+    with st.sidebar.expander("Catálogo de comentarios (dim_comentario)"):
+        st.caption(
+            "Catálogo de vocabulario de comentarios -- nunca unido a leads individuales."
+        )
+        st.dataframe(_load_comment_catalog(db_path), use_container_width=True)
+
+
 def _render_dashboard_panel() -> None:
     """Render the persistent KPI + filters + table + chart-tabs panel above
     the chat.
@@ -253,6 +341,7 @@ def _render_dashboard_panel() -> None:
     selected_tiers, selected_clusters, selected_hobby, selected_idprospecto = (
         _render_sidebar_filters(ctx, data)
     )
+    _render_comment_catalog(str(DB_PATH))
 
     filtered_rows = _apply_filters(
         data["all_rows"], selected_tiers, selected_clusters, selected_hobby, selected_idprospecto
@@ -275,7 +364,20 @@ def _render_dashboard_panel() -> None:
         f"Showing {total_leads} of {data['population_size']} total leads "
         "matching the current filters."
     )
-    st.dataframe(filtered_rows, use_container_width=True)
+    st.dataframe(
+        filtered_df,
+        use_container_width=True,
+        column_config={
+            "IDPROSPECTO": st.column_config.NumberColumn("ID Prospecto", format="%d"),
+            "Cluster": st.column_config.NumberColumn("Cluster", format="%d"),
+            "Probabilidad_Compra": st.column_config.NumberColumn(
+                "Probabilidad de Compra", format="percent"
+            ),
+            "Hobbies_Estandar": st.column_config.TextColumn("Hobby"),
+            "tier_prioridad": st.column_config.TextColumn("Tier de Prioridad"),
+            "orden_contacto": st.column_config.NumberColumn("Orden Llamada #", format="%d"),
+        },
+    )
 
     tab_cluster, tab_probabilidad = st.tabs(
         ["Distribución por Cluster", "Distribución de Probabilidad de Compra"]
@@ -283,25 +385,47 @@ def _render_dashboard_panel() -> None:
 
     with tab_cluster:
         if not filtered_df.empty:
-            cluster_counts = filtered_df["Cluster"].value_counts().sort_index().reset_index()
-            cluster_counts.columns = ["Cluster", "Leads"]
-            cluster_counts["Perfil"] = cluster_counts["Cluster"].apply(
+            tier_cluster_df = pd.DataFrame(_tier_by_cluster_counts(filtered_rows))
+            tier_cluster_df["Perfil"] = tier_cluster_df["Cluster"].apply(
                 lambda cluster: interpretar_cluster(ctx, cluster=cluster).rows[0]["label"]
             )
-            fig_cluster = px.bar(cluster_counts, x="Perfil", y="Leads", title="Leads by Cluster")
+            fig_cluster = px.bar(
+                tier_cluster_df,
+                x="Perfil",
+                y="Leads",
+                color="tier_prioridad",
+                barmode="stack",
+                category_orders={"tier_prioridad": list(_ALL_TIERS)},
+                color_discrete_map=_TIER_COLOR_MAP,
+                title="Leads by Cluster and Tier",
+            )
             st.plotly_chart(fig_cluster, use_container_width=True)
         else:
             st.info("No leads match the current filters.")
 
     with tab_probabilidad:
         if not filtered_df.empty:
-            bands = filtered_df["Probabilidad_Compra"].apply(banda_probabilidad)
-            band_counts = bands.value_counts().reset_index()
-            band_counts.columns = ["Banda", "Leads"]
-            fig_band = px.bar(
-                band_counts, x="Banda", y="Leads", title="Leads by Probability Band"
+            fig_hist = px.histogram(
+                filtered_df,
+                x="Probabilidad_Compra",
+                color="tier_prioridad",
+                category_orders={"tier_prioridad": list(_ALL_TIERS)},
+                color_discrete_map=_TIER_COLOR_MAP,
+                title="Distribución de Probabilidad de Compra",
             )
-            st.plotly_chart(fig_band, use_container_width=True)
+            fig_hist.add_vline(
+                x=_THRESHOLDS.umbral_alto,
+                line_dash="dash",
+                line_color=_TIER_COLOR_MAP["Alto"],
+                annotation_text=f"Corte Alto ({_THRESHOLDS.umbral_alto:.2f})",
+            )
+            fig_hist.add_vline(
+                x=_THRESHOLDS.umbral_medio,
+                line_dash="dash",
+                line_color=_TIER_COLOR_MAP["Medio"],
+                annotation_text=f"Corte Medio ({_THRESHOLDS.umbral_medio:.2f})",
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
         else:
             st.info("No leads match the current filters.")
 

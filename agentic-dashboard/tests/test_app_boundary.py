@@ -57,6 +57,42 @@ This is a deliberate, documented boundary revision, not a shortcut:
   whose name/key/attribute looks like a probability or cluster value. This
   stays a real, executable guardrail -- not a removed one -- for exactly
   the behavior the original list was written to prevent.
+
+## PR9: threshold-reference-line chart needs `Thresholds` itself, not just its names
+
+PR9 adds a probability histogram with vertical reference lines at the
+`umbral_alto`/`umbral_medio` cut points (`fig.add_vline(x=..., ...)`), plus
+an annotation label reading each cut's current value. Rendering that
+requires importing the `Thresholds` dataclass from `skills.py` and
+instantiating it once (`Thresholds()`, its own documented defaults) so
+`app.py` reads `thresholds.umbral_alto` / `thresholds.umbral_medio` as
+plain attribute access -- never redeclaring, re-deriving, or hardcoding
+either value itself.
+
+Through PR8, `FORBIDDEN_SOURCE_TOKENS` banned the raw substrings
+`"umbral_alto"` and `"umbral_medio"` anywhere in `app.py`'s source. That
+ban's ORIGINAL intent (same reasoning as PR8's own field-token split
+above) was to stop `app.py` from declaring its OWN local threshold
+constant (e.g. `umbral_alto = 0.70`) -- never to forbid reading the single
+source of truth's own attribute names via `thresholds.umbral_alto`. Since
+`thresholds.umbral_alto` necessarily contains the substring
+`"umbral_alto"` in `app.py`'s raw source text, a blanket substring ban
+cannot coexist with legitimate attribute access, so PR9 removes
+`"umbral_alto"` / `"umbral_medio"` from `FORBIDDEN_SOURCE_TOKENS`. What
+stays banned, unchanged: `"UMBRAL_"` (an uppercase local-constant naming
+style), `"cluster_alta_conversion"`, `"tolerancia_empate"` (thresholds
+`app.py` has no legitimate reason to reference), and `"sqlite3"`.
+
+In exchange, PR9 adds two new, stronger guardrail tests:
+`test_app_imports_thresholds_from_skills` (proves `Thresholds` really is
+imported from `skills`, not locally redefined) and
+`test_app_never_hardcodes_probability_threshold_literals` (a broader,
+context-free AST sweep for the bare numeric literals `0.70`/`0.7`/
+`0.30`/`0.3` ANYWHERE in `app.py`'s source -- not only inside an
+`ast.Compare`, which is all `test_app_never_hardcodes_threshold_comparisons`
+above checks. A hardcoded `fig.add_vline(x=0.70, ...)` is a `Call`
+argument, not a `Compare`, so the existing PR8 check would miss it; this
+new sweep does not).
 """
 
 from __future__ import annotations
@@ -93,9 +129,18 @@ ALLOWED_IMPORT_FROM = {
         "SkillContext",
         "listar_leads_priorizados",
         "resumen_por_cluster",
-        "banda_probabilidad",
         "catalogo_hobbies",
         "interpretar_cluster",
+        # PR9: catalogo_categorias_comentario is called directly for the
+        # sidebar's dim_comentario catalog expander (same direct-skill-call
+        # pattern as the other four names above). Thresholds is the single
+        # source of truth for the histogram's reference-line x positions --
+        # see the module docstring's PR9 section. `banda_probabilidad`
+        # (PR8) is dropped here: PR9's tier-colored histogram replaces the
+        # band-count chart that was its only caller, so app.py no longer
+        # imports it.
+        "catalogo_categorias_comentario",
+        "Thresholds",
     },
     "trace": {"TraceWriter"},
 }
@@ -119,10 +164,17 @@ ALLOWED_DATA_FIELD_TOKENS = (
 # calls) that must never appear in app.py's raw source. Actual thresholds
 # live exclusively in skills.py; the UI layer must only ever call a public
 # skill function (or `Harness.ask()`) and render its output.
+#
+# PR9: "umbral_alto" / "umbral_medio" are deliberately NOT in this list --
+# see the module docstring's PR9 section. `app.py` now legitimately reads
+# `thresholds.umbral_alto` / `thresholds.umbral_medio` as attribute access
+# on an imported `Thresholds()` instance, which necessarily contains those
+# substrings in the raw source. `test_app_imports_thresholds_from_skills`
+# and `test_app_never_hardcodes_probability_threshold_literals` below
+# replace the substring ban for this specific case with stronger,
+# structural AST checks.
 FORBIDDEN_SOURCE_TOKENS = (
     "UMBRAL_",
-    "umbral_alto",
-    "umbral_medio",
     "cluster_alta_conversion",
     "tolerancia_empate",
     "sqlite3",
@@ -290,4 +342,56 @@ def test_app_imports_plotly_express():
     }
     assert "plotly.express" in imported, (
         "app.py must import plotly.express for the persistent dashboard panel's chart"
+    )
+
+
+def test_app_imports_thresholds_from_skills():
+    """PR9: `app.py` must read threshold values through the `Thresholds`
+    dataclass imported from `skills.py` -- never a locally-defined stand-in
+    -- so the histogram's reference-line positions stay bound to the same
+    single source of truth `tier_prioridad`/`banda_probabilidad` use. See
+    the module docstring's PR9 section."""
+
+    tree = _parse()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "skills":
+            if any(alias.name == "Thresholds" for alias in node.names):
+                return
+    raise AssertionError(
+        "app.py must import Thresholds from skills to read threshold values "
+        "for the probability histogram's reference lines"
+    )
+
+
+def test_app_never_hardcodes_probability_threshold_literals():
+    """PR9 guardrail, broader than `test_app_never_hardcodes_threshold_comparisons`
+    above: no bare `0.70`/`0.7`/`0.30`/`0.3` numeric literal may appear
+    ANYWHERE in app.py's source -- not only inside an `ast.Compare`. A
+    hardcoded `fig.add_vline(x=0.70, ...)` is a `Call` keyword argument, a
+    shape the Compare-scoped check above does not walk, so this test closes
+    that gap explicitly. Threshold values must always be read via
+    `thresholds.umbral_alto` / `thresholds.umbral_medio` attribute access
+    on an imported `Thresholds()` instance (see
+    `test_app_imports_thresholds_from_skills` above) -- `Thresholds`'s own
+    default arguments live in skills.py, never in app.py.
+    """
+
+    tree = _parse()
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, (int, float))
+            and not isinstance(node.value, bool)
+            and node.value in {0.70, 0.7, 0.30, 0.3}
+        ):
+            violations.append(ast.dump(node))
+
+    assert not violations, (
+        "app.py hardcodes a probability threshold numeric literal "
+        f"(0.70/0.30) directly in its source: {violations}. Read "
+        "thresholds.umbral_alto / thresholds.umbral_medio from an imported "
+        "Thresholds() instance instead -- app.py must never contain the "
+        "literal threshold value itself."
     )
